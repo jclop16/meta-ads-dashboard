@@ -28,3 +28,12 @@
 - [x] Build Snapshot History page/tab with comparison table
 - [x] Show date range selector on dashboard to switch between snapshots
 - [x] Write vitest tests for snapshot routes
+
+## Filter & Sort — History Campaign Table
+- [x] Add status filter (All / On Target / Moderate / Over Target)
+- [x] Add objective filter (All / Annuity / FEGLI Trap / Conversion)
+- [x] Add search/name filter input
+- [x] Add clickable column sort headers (Amount Spent, Leads, CPL, CTR)
+- [x] Show active sort indicator (asc/desc arrow) on column headers
+- [x] Show active filter chips with clear button
+- [x] Show empty state when no campaigns match filters

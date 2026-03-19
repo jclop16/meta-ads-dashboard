@@ -6,13 +6,19 @@ import {
   ResponsiveContainer, Cell,
 } from "recharts";
 import {
-  Calendar, TrendingUp, DollarSign, Users, Target,
-  Eye, MousePointer, ArrowUpRight, ArrowDownRight, Minus,
-  ChevronDown, ChevronUp, Info,
+  Calendar, TrendingUp, DollarSign, Target,
+  Eye, ArrowUpRight, ArrowDownRight, Minus,
+  ChevronDown, ChevronUp, Info, Search, X,
+  ChevronsUpDown, ArrowUp, ArrowDown,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useCplTarget } from "@/contexts/CplTargetContext";
 import RefreshButton from "@/components/RefreshButton";
+
+// ── Types ─────────────────────────────────────────────────────
+type SortKey = "shortName" | "amountSpent" | "leads" | "costPerLead" | "ctrAll";
+type SortDir = "asc" | "desc";
+type StatusFilter = "all" | "excellent" | "moderate" | "poor";
 
 // ── Custom tooltip ────────────────────────────────────────────
 function DarkTooltip({ active, payload, label }: any) {
@@ -102,10 +108,62 @@ function StatCard({
   );
 }
 
+// ── Sort icon ─────────────────────────────────────────────────
+function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; sortDir: SortDir }) {
+  if (col !== sortKey) return <ChevronsUpDown size={10} style={{ color: "#334155" }} />;
+  return sortDir === "asc"
+    ? <ArrowUp size={10} style={{ color: "#00D4FF" }} />
+    : <ArrowDown size={10} style={{ color: "#00D4FF" }} />;
+}
+
+// ── Sortable column header ────────────────────────────────────
+function SortTh({
+  col, label, sortKey, sortDir, onSort, align = "right",
+}: {
+  col: SortKey;
+  label: string;
+  sortKey: SortKey;
+  sortDir: SortDir;
+  onSort: (col: SortKey) => void;
+  align?: "left" | "right";
+}) {
+  const isActive = col === sortKey;
+  return (
+    <th
+      className={`py-3 px-4 text-[10px] font-mono uppercase tracking-widest cursor-pointer select-none group ${align === "right" ? "text-right" : "text-left"}`}
+      style={{ color: isActive ? "#00D4FF" : "#475569" }}
+      onClick={() => onSort(col)}
+    >
+      <span className={`inline-flex items-center gap-1 ${align === "right" ? "justify-end" : "justify-start"}`}>
+        {label}
+        <SortIcon col={col} sortKey={sortKey} sortDir={sortDir} />
+      </span>
+    </th>
+  );
+}
+
+// ── Filter chip ───────────────────────────────────────────────
+function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded-full"
+      style={{
+        background: "rgba(0,212,255,0.1)",
+        border: "1px solid rgba(0,212,255,0.25)",
+        color: "#00D4FF",
+      }}
+    >
+      {label}
+      <button onClick={onRemove} className="hover:opacity-70 transition-opacity">
+        <X size={9} />
+      </button>
+    </span>
+  );
+}
+
 // ── Campaign row ──────────────────────────────────────────────
-function CampaignRow({ c, cplTarget, getColor }: {
+function CampaignRow({ c, getColor }: {
   c: any;
-  cplTarget: number;
   getColor: (v: number | null) => string;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -121,7 +179,18 @@ function CampaignRow({ c, cplTarget, getColor }: {
         <td className="py-3 px-4">
           <div className="flex items-center gap-2">
             <div className="w-1.5 h-6 rounded-full flex-shrink-0" style={{ background: cplColor }} />
-            <span className="text-xs font-mono" style={{ color: "#CBD5E1" }}>{c.shortName}</span>
+            <div>
+              <span className="text-xs font-mono block" style={{ color: "#CBD5E1" }}>{c.shortName}</span>
+              <span
+                className="text-[9px] font-mono px-1.5 py-0.5 rounded mt-0.5 inline-block"
+                style={{
+                  background: "rgba(255,255,255,0.04)",
+                  color: "#64748B",
+                }}
+              >
+                {c.objective}
+              </span>
+            </div>
           </div>
         </td>
         <td className="py-3 px-4 text-right font-mono text-xs" style={{ color: "#94A3B8" }}>
@@ -170,10 +239,43 @@ function CampaignRow({ c, cplTarget, getColor }: {
   );
 }
 
+// ── Status label map ──────────────────────────────────────────
+const STATUS_LABELS: Record<StatusFilter, string> = {
+  all: "All Statuses",
+  excellent: "On Target",
+  moderate: "Moderate",
+  poor: "Over Target",
+};
+
+const STATUS_COLORS: Record<StatusFilter, string> = {
+  all: "#64748B",
+  excellent: "#00E676",
+  moderate: "#FFB300",
+  poor: "#FF3B5C",
+};
+
 // ── Main page ─────────────────────────────────────────────────
 export default function SnapshotHistory() {
-  const { cplTarget, getColor } = useCplTarget();
+  const { cplTarget, getColor, getStatus } = useCplTarget();
   const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  // ── Filter state ──────────────────────────────────────────
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [objectiveFilter, setObjectiveFilter] = useState<string>("all");
+
+  // ── Sort state ────────────────────────────────────────────
+  const [sortKey, setSortKey] = useState<SortKey>("costPerLead");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const handleSort = (col: SortKey) => {
+    if (col === sortKey) {
+      setSortDir(d => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(col);
+      setSortDir(col === "shortName" ? "asc" : "asc");
+    }
+  };
 
   const { data: snapshots = [], isLoading: snapsLoading } = trpc.dashboard.snapshots.useQuery();
   const { data: detail, isLoading: detailLoading } = trpc.dashboard.snapshotDetail.useQuery(
@@ -181,35 +283,79 @@ export default function SnapshotHistory() {
     { enabled: selectedId != null }
   );
 
-  // Auto-select the first snapshot when data loads
   const activeId = selectedId ?? (snapshots[0]?.id ?? null);
   const activeSnap = snapshots.find(s => s.id === activeId) ?? null;
 
-  // Comparison: delta vs. last_30d baseline
   const baseline = snapshots.find(s => s.datePreset === "last_30d");
   function pctDelta(current: number, base: number | undefined): number | null {
     if (!base || base === 0) return null;
     return ((current - base) / base) * 100;
   }
 
-  // CPL chart across all snapshots
+  // ── Derived objective list ────────────────────────────────
+  const objectives = useMemo(() => {
+    if (!detail?.campaigns) return [];
+    const set = new Set(detail.campaigns.map((c: any) => c.objective as string));
+    return Array.from(set).sort();
+  }, [detail?.campaigns]);
+
+  // ── Filtered + sorted campaigns ───────────────────────────
+  const filteredCampaigns = useMemo(() => {
+    if (!detail?.campaigns) return [];
+    let list = [...detail.campaigns] as any[];
+
+    // Search filter
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter(c => c.shortName.toLowerCase().includes(q) || c.campaignName.toLowerCase().includes(q));
+    }
+
+    // Status filter
+    if (statusFilter !== "all") {
+      list = list.filter(c => getStatus(c.costPerLead) === statusFilter);
+    }
+
+    // Objective filter
+    if (objectiveFilter !== "all") {
+      list = list.filter(c => c.objective === objectiveFilter);
+    }
+
+    // Sort
+    list.sort((a, b) => {
+      let aVal: any = a[sortKey];
+      let bVal: any = b[sortKey];
+      if (sortKey === "costPerLead") {
+        aVal = aVal ?? 9999;
+        bVal = bVal ?? 9999;
+      }
+      if (typeof aVal === "string") {
+        return sortDir === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      }
+      return sortDir === "asc" ? aVal - bVal : bVal - aVal;
+    });
+
+    return list;
+  }, [detail?.campaigns, search, statusFilter, objectiveFilter, sortKey, sortDir, cplTarget]);
+
+  // ── Active filter chips ───────────────────────────────────
+  const activeFilters: { label: string; clear: () => void }[] = [];
+  if (search.trim()) activeFilters.push({ label: `"${search.trim()}"`, clear: () => setSearch("") });
+  if (statusFilter !== "all") activeFilters.push({ label: STATUS_LABELS[statusFilter], clear: () => setStatusFilter("all") });
+  if (objectiveFilter !== "all") activeFilters.push({ label: objectiveFilter, clear: () => setObjectiveFilter("all") });
+
+  const clearAllFilters = () => {
+    setSearch("");
+    setStatusFilter("all");
+    setObjectiveFilter("all");
+  };
+
+  // ── Chart data ────────────────────────────────────────────
   const cplChartData = useMemo(
-    () =>
-      snapshots.map(s => ({
-        name: s.datePresetLabel,
-        cpl: s.costPerLead,
-        color: getColor(s.costPerLead),
-      })),
+    () => snapshots.map(s => ({ name: s.datePresetLabel, cpl: s.costPerLead, color: getColor(s.costPerLead) })),
     [snapshots, cplTarget]
   );
-
-  // Spend chart
   const spendChartData = useMemo(
-    () =>
-      snapshots.map(s => ({
-        name: s.datePresetLabel,
-        spend: s.amountSpent,
-      })),
+    () => snapshots.map(s => ({ name: s.datePresetLabel, spend: s.amountSpent })),
     [snapshots]
   );
 
@@ -285,9 +431,9 @@ export default function SnapshotHistory() {
           </motion.div>
         )}
 
-        {/* ── Date range tabs ──────────────────────────────── */}
         {hasSnapshots && (
           <>
+            {/* ── Date range tabs ──────────────────────────── */}
             <section>
               <SectionLabel icon={<Calendar size={13} />} label="Date Range Snapshots" />
               <div className="flex flex-wrap gap-2 mt-3">
@@ -296,7 +442,10 @@ export default function SnapshotHistory() {
                   return (
                     <motion.button
                       key={s.id}
-                      onClick={() => setSelectedId(s.id)}
+                      onClick={() => {
+                        setSelectedId(s.id);
+                        clearAllFilters();
+                      }}
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                       className="px-4 py-2 rounded-lg text-xs font-semibold transition-all duration-200"
@@ -310,10 +459,7 @@ export default function SnapshotHistory() {
                     >
                       <span>{s.datePresetLabel}</span>
                       {s.isPartial && (
-                        <span
-                          className="ml-1.5 text-[9px] font-mono px-1 py-0.5 rounded"
-                          style={{ color: "#FFB300", background: "rgba(255,179,0,0.1)" }}
-                        >
+                        <span className="ml-1.5 text-[9px] font-mono px-1 py-0.5 rounded" style={{ color: "#FFB300", background: "rgba(255,179,0,0.1)" }}>
                           PARTIAL
                         </span>
                       )}
@@ -337,74 +483,28 @@ export default function SnapshotHistory() {
                 <div className="flex items-center gap-2 mb-3">
                   <SectionLabel icon={<Target size={13} />} label={`${activeSnap.datePresetLabel} — Account KPIs`} />
                   {activeSnap.isPartial && (
-                    <span
-                      className="text-[10px] font-mono px-2 py-0.5 rounded-full flex items-center gap-1"
-                      style={{ color: "#FFB300", background: "rgba(255,179,0,0.1)", border: "1px solid rgba(255,179,0,0.2)" }}
-                    >
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full flex items-center gap-1" style={{ color: "#FFB300", background: "rgba(255,179,0,0.1)", border: "1px solid rgba(255,179,0,0.2)" }}>
                       <Info size={9} /> Partial data — subject to change
                     </span>
                   )}
                 </div>
-
                 <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-                  <StatCard
-                    label="Amount Spent"
-                    value={`$${activeSnap.amountSpent.toLocaleString("en-US", { minimumFractionDigits: 2 })}`}
-                    delta={baseline && activeSnap.id !== baseline.id ? pctDelta(activeSnap.amountSpent, baseline.amountSpent) : undefined}
-                    accent="cyan"
-                  />
-                  <StatCard
-                    label="Leads"
-                    value={activeSnap.leads.toLocaleString()}
-                    delta={baseline && activeSnap.id !== baseline.id ? pctDelta(activeSnap.leads, baseline.leads) : undefined}
-                    accent="win"
-                  />
-                  <StatCard
-                    label="Cost per Lead"
-                    value={`$${activeSnap.costPerLead.toFixed(2)}`}
-                    delta={baseline && activeSnap.id !== baseline.id ? pctDelta(activeSnap.costPerLead, baseline.costPerLead) : undefined}
-                    inverseDelta
-                    accent={activeSnap.costPerLead <= cplTarget ? "win" : activeSnap.costPerLead <= cplTarget * 1.5 ? "warn" : "poor"}
-                  />
-                  <StatCard
-                    label="Impressions"
-                    value={`${(activeSnap.impressions / 1000).toFixed(0)}K`}
-                    delta={baseline && activeSnap.id !== baseline.id ? pctDelta(activeSnap.impressions, baseline.impressions) : undefined}
-                    accent="neutral"
-                  />
-                  <StatCard
-                    label="Reach"
-                    value={`${(activeSnap.reach / 1000).toFixed(0)}K`}
-                    delta={baseline && activeSnap.id !== baseline.id ? pctDelta(activeSnap.reach, baseline.reach) : undefined}
-                    accent="neutral"
-                  />
-                  <StatCard
-                    label="CTR (all)"
-                    value={`${activeSnap.ctrAll.toFixed(2)}%`}
-                    delta={baseline && activeSnap.id !== baseline.id ? pctDelta(activeSnap.ctrAll, baseline.ctrAll) : undefined}
-                    accent="cyan"
-                  />
-                  <StatCard
-                    label="CPM"
-                    value={`$${activeSnap.cpm.toFixed(2)}`}
-                    delta={baseline && activeSnap.id !== baseline.id ? pctDelta(activeSnap.cpm, baseline.cpm) : undefined}
-                    inverseDelta
-                    accent="neutral"
-                  />
+                  <StatCard label="Amount Spent" value={`$${activeSnap.amountSpent.toLocaleString("en-US", { minimumFractionDigits: 2 })}`} delta={baseline && activeSnap.id !== baseline.id ? pctDelta(activeSnap.amountSpent, baseline.amountSpent) : undefined} accent="cyan" />
+                  <StatCard label="Leads" value={activeSnap.leads.toLocaleString()} delta={baseline && activeSnap.id !== baseline.id ? pctDelta(activeSnap.leads, baseline.leads) : undefined} accent="win" />
+                  <StatCard label="Cost per Lead" value={`$${activeSnap.costPerLead.toFixed(2)}`} delta={baseline && activeSnap.id !== baseline.id ? pctDelta(activeSnap.costPerLead, baseline.costPerLead) : undefined} inverseDelta accent={activeSnap.costPerLead <= cplTarget ? "win" : activeSnap.costPerLead <= cplTarget * 1.5 ? "warn" : "poor"} />
+                  <StatCard label="Impressions" value={`${(activeSnap.impressions / 1000).toFixed(0)}K`} delta={baseline && activeSnap.id !== baseline.id ? pctDelta(activeSnap.impressions, baseline.impressions) : undefined} accent="neutral" />
+                  <StatCard label="Reach" value={`${(activeSnap.reach / 1000).toFixed(0)}K`} delta={baseline && activeSnap.id !== baseline.id ? pctDelta(activeSnap.reach, baseline.reach) : undefined} accent="neutral" />
+                  <StatCard label="CTR (all)" value={`${activeSnap.ctrAll.toFixed(2)}%`} delta={baseline && activeSnap.id !== baseline.id ? pctDelta(activeSnap.ctrAll, baseline.ctrAll) : undefined} accent="cyan" />
+                  <StatCard label="CPM" value={`$${activeSnap.cpm.toFixed(2)}`} delta={baseline && activeSnap.id !== baseline.id ? pctDelta(activeSnap.cpm, baseline.cpm) : undefined} inverseDelta accent="neutral" />
                 </div>
               </motion.section>
             )}
 
-            {/* ── Cross-snapshot comparison charts ─────────── */}
+            {/* ── Comparison charts ────────────────────────── */}
             <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <div
-                className="rounded-lg p-5"
-                style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}
-              >
+              <div className="rounded-lg p-5" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
                 <SectionLabel icon={<TrendingUp size={13} />} label="Cost per Lead by Date Range" />
-                <p className="text-xs mt-1 mb-4" style={{ color: "#475569" }}>
-                  Colors relative to your CPL target (${cplTarget.toFixed(2)})
-                </p>
+                <p className="text-xs mt-1 mb-4" style={{ color: "#475569" }}>Colors relative to your CPL target (${cplTarget.toFixed(2)})</p>
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={cplChartData} margin={{ left: 0, right: 16, top: 4, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
@@ -412,22 +512,14 @@ export default function SnapshotHistory() {
                     <YAxis tick={{ fill: "#475569", fontSize: 9, fontFamily: "JetBrains Mono" }} tickFormatter={v => `$${v}`} axisLine={false} tickLine={false} />
                     <Tooltip content={<DarkTooltip />} />
                     <Bar dataKey="cpl" name="Cost per Lead ($)" radius={[3, 3, 0, 0]}>
-                      {cplChartData.map((d, i) => (
-                        <Cell key={i} fill={d.color} fillOpacity={0.85} />
-                      ))}
+                      {cplChartData.map((d, i) => <Cell key={i} fill={d.color} fillOpacity={0.85} />)}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-
-              <div
-                className="rounded-lg p-5"
-                style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}
-              >
+              <div className="rounded-lg p-5" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
                 <SectionLabel icon={<DollarSign size={13} />} label="Amount Spent by Date Range" />
-                <p className="text-xs mt-1 mb-4" style={{ color: "#475569" }}>
-                  Total Amount spent per reporting period
-                </p>
+                <p className="text-xs mt-1 mb-4" style={{ color: "#475569" }}>Total amount spent per reporting period</p>
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={spendChartData} margin={{ left: 0, right: 16, top: 4, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
@@ -440,42 +532,169 @@ export default function SnapshotHistory() {
               </div>
             </section>
 
-            {/* ── Campaign breakdown for selected snapshot ──── */}
+            {/* ── Campaign breakdown ───────────────────────── */}
             {activeId != null && (
               <section>
-                <SectionLabel icon={<Eye size={13} />} label={`Campaign Breakdown — ${activeSnap?.datePresetLabel ?? ""}`} />
+                <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
+                  <SectionLabel icon={<Eye size={13} />} label={`Campaign Breakdown — ${activeSnap?.datePresetLabel ?? ""}`} />
+                  {detail && (
+                    <span className="text-[10px] font-mono" style={{ color: "#475569" }}>
+                      {filteredCampaigns.length} of {detail.campaigns.length} campaigns
+                    </span>
+                  )}
+                </div>
+
+                {/* ── Filter + sort controls ──────────────── */}
+                {detail && detail.campaigns.length > 0 && (
+                  <div className="space-y-3 mb-4">
+                    {/* Row 1: search + status + objective */}
+                    <div className="flex flex-wrap gap-2 items-center">
+                      {/* Search */}
+                      <div
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg flex-1 min-w-[180px] max-w-xs"
+                        style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}
+                      >
+                        <Search size={12} style={{ color: "#475569", flexShrink: 0 }} />
+                        <input
+                          type="text"
+                          placeholder="Search campaigns…"
+                          value={search}
+                          onChange={e => setSearch(e.target.value)}
+                          className="bg-transparent text-xs font-mono outline-none w-full placeholder:text-[#334155]"
+                          style={{ color: "#CBD5E1" }}
+                        />
+                        {search && (
+                          <button onClick={() => setSearch("")} className="hover:opacity-70">
+                            <X size={10} style={{ color: "#475569" }} />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Status filter */}
+                      <div className="flex items-center gap-1">
+                        {(["all", "excellent", "moderate", "poor"] as StatusFilter[]).map(s => (
+                          <button
+                            key={s}
+                            onClick={() => setStatusFilter(s)}
+                            className="text-[10px] font-mono px-2.5 py-1.5 rounded-lg transition-all"
+                            style={{
+                              background: statusFilter === s
+                                ? s === "all" ? "rgba(255,255,255,0.08)" : `${STATUS_COLORS[s]}18`
+                                : "rgba(255,255,255,0.02)",
+                              border: `1px solid ${statusFilter === s
+                                ? s === "all" ? "rgba(255,255,255,0.15)" : `${STATUS_COLORS[s]}50`
+                                : "rgba(255,255,255,0.05)"}`,
+                              color: statusFilter === s ? STATUS_COLORS[s] : "#475569",
+                            }}
+                          >
+                            {s === "all" ? "All" : s === "excellent" ? "On Target" : s === "moderate" ? "Moderate" : "Over Target"}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Objective filter */}
+                      {objectives.length > 1 && (
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setObjectiveFilter("all")}
+                            className="text-[10px] font-mono px-2.5 py-1.5 rounded-lg transition-all"
+                            style={{
+                              background: objectiveFilter === "all" ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.02)",
+                              border: `1px solid ${objectiveFilter === "all" ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.05)"}`,
+                              color: objectiveFilter === "all" ? "#94A3B8" : "#475569",
+                            }}
+                          >
+                            All Objectives
+                          </button>
+                          {objectives.map((obj: string) => (
+                            <button
+                              key={obj}
+                              onClick={() => setObjectiveFilter(obj)}
+                              className="text-[10px] font-mono px-2.5 py-1.5 rounded-lg transition-all"
+                              style={{
+                                background: objectiveFilter === obj ? "rgba(0,212,255,0.1)" : "rgba(255,255,255,0.02)",
+                                border: `1px solid ${objectiveFilter === obj ? "rgba(0,212,255,0.3)" : "rgba(255,255,255,0.05)"}`,
+                                color: objectiveFilter === obj ? "#00D4FF" : "#475569",
+                              }}
+                            >
+                              {obj}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Clear all */}
+                      {activeFilters.length > 0 && (
+                        <button
+                          onClick={clearAllFilters}
+                          className="text-[10px] font-mono px-2 py-1.5 rounded-lg transition-all hover:opacity-70"
+                          style={{ color: "#FF3B5C", background: "rgba(255,59,92,0.08)", border: "1px solid rgba(255,59,92,0.2)" }}
+                        >
+                          Clear all
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Row 2: active filter chips */}
+                    {activeFilters.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 items-center">
+                        <span className="text-[10px] font-mono" style={{ color: "#334155" }}>Active filters:</span>
+                        {activeFilters.map((f, i) => (
+                          <FilterChip key={i} label={f.label} onRemove={f.clear} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Table ──────────────────────────────────── */}
                 {detailLoading ? (
                   <div className="py-12 text-center text-xs font-mono" style={{ color: "#475569" }}>
                     Loading campaign data…
                   </div>
-                ) : detail && detail.campaigns.length > 0 ? (
-                  <div
-                    className="rounded-lg overflow-hidden mt-3"
-                    style={{ border: "1px solid rgba(255,255,255,0.05)" }}
-                  >
+                ) : filteredCampaigns.length > 0 ? (
+                  <div className="rounded-lg overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.05)" }}>
                     <table className="w-full">
                       <thead>
                         <tr style={{ background: "rgba(255,255,255,0.03)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                          {["Campaign", "Amount Spent", "Leads", "Cost per Lead", "CTR (all)", ""].map((h, i) => (
-                            <th
-                              key={i}
-                              className={`py-3 px-4 text-[10px] font-mono uppercase tracking-widest ${i > 0 ? "text-right" : "text-left"} ${i === 5 ? "text-center" : ""}`}
-                              style={{ color: "#475569" }}
-                            >
-                              {h}
-                            </th>
-                          ))}
+                          <SortTh col="shortName" label="Campaign" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} align="left" />
+                          <SortTh col="amountSpent" label="Amount Spent" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                          <SortTh col="leads" label="Leads" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                          <SortTh col="costPerLead" label="Cost per Lead" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                          <SortTh col="ctrAll" label="CTR (all)" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                          <th className="py-3 px-4 w-8" />
                         </tr>
                       </thead>
                       <tbody>
-                        {detail.campaigns
-                          .sort((a, b) => (a.costPerLead ?? 999) - (b.costPerLead ?? 999))
-                          .map(c => (
-                            <CampaignRow key={c.id} c={c} cplTarget={cplTarget} getColor={getColor} />
-                          ))}
+                        {filteredCampaigns.map(c => (
+                          <CampaignRow key={c.id} c={c} getColor={getColor} />
+                        ))}
                       </tbody>
                     </table>
                   </div>
+                ) : detail && detail.campaigns.length > 0 ? (
+                  // No results after filtering
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="py-16 text-center rounded-lg"
+                    style={{ border: "1px solid rgba(255,255,255,0.05)" }}
+                  >
+                    <Search size={24} className="mx-auto mb-3" style={{ color: "#334155" }} />
+                    <p className="text-sm font-semibold mb-1" style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#64748B" }}>
+                      No campaigns match your filters
+                    </p>
+                    <p className="text-xs font-mono mb-4" style={{ color: "#334155" }}>
+                      Try adjusting the status, objective, or search term
+                    </p>
+                    <button
+                      onClick={clearAllFilters}
+                      className="text-xs font-mono px-4 py-2 rounded-lg transition-all hover:brightness-125"
+                      style={{ background: "rgba(0,212,255,0.1)", border: "1px solid rgba(0,212,255,0.25)", color: "#00D4FF" }}
+                    >
+                      Clear all filters
+                    </button>
+                  </motion.div>
                 ) : (
                   <div className="py-8 text-center text-xs font-mono" style={{ color: "#475569" }}>
                     No campaign data available for this snapshot.
@@ -484,35 +703,28 @@ export default function SnapshotHistory() {
               </section>
             )}
 
-            {/* ── Snapshot metadata ────────────────────────── */}
+            {/* ── Snapshot summary table ───────────────────── */}
             <section className="pb-8">
               <SectionLabel icon={<Calendar size={13} />} label="All Snapshots Summary" />
-              <div
-                className="rounded-lg overflow-hidden mt-3"
-                style={{ border: "1px solid rgba(255,255,255,0.05)" }}
-              >
+              <div className="rounded-lg overflow-hidden mt-3" style={{ border: "1px solid rgba(255,255,255,0.05)" }}>
                 <table className="w-full">
                   <thead>
                     <tr style={{ background: "rgba(255,255,255,0.03)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
                       {["Date Range", "Period", "Amount Spent", "Leads", "Cost per Lead", "CTR (all)", "CPM", "Last Fetched"].map((h, i) => (
-                        <th
-                          key={i}
-                          className={`py-3 px-4 text-[10px] font-mono uppercase tracking-widest ${i > 1 ? "text-right" : "text-left"}`}
-                          style={{ color: "#475569" }}
-                        >
+                        <th key={i} className={`py-3 px-4 text-[10px] font-mono uppercase tracking-widest ${i > 1 ? "text-right" : "text-left"}`} style={{ color: "#475569" }}>
                           {h}
                         </th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {snapshots.map((s, i) => {
+                    {snapshots.map(s => {
                       const cplColor = getColor(s.costPerLead);
                       const isActive = s.id === activeId;
                       return (
                         <tr
                           key={s.id}
-                          onClick={() => setSelectedId(s.id)}
+                          onClick={() => { setSelectedId(s.id); clearAllFilters(); }}
                           className="cursor-pointer transition-colors hover:brightness-125"
                           style={{
                             borderBottom: "1px solid rgba(255,255,255,0.04)",
@@ -526,33 +738,17 @@ export default function SnapshotHistory() {
                                 {s.datePresetLabel}
                               </span>
                               {s.isPartial && (
-                                <span className="text-[9px] font-mono px-1 py-0.5 rounded" style={{ color: "#FFB300", background: "rgba(255,179,0,0.1)" }}>
-                                  PARTIAL
-                                </span>
+                                <span className="text-[9px] font-mono px-1 py-0.5 rounded" style={{ color: "#FFB300", background: "rgba(255,179,0,0.1)" }}>PARTIAL</span>
                               )}
                             </div>
                           </td>
-                          <td className="py-3 px-4 text-xs font-mono" style={{ color: "#64748B" }}>
-                            {s.dateRangeSince} → {s.dateRangeUntil}
-                          </td>
-                          <td className="py-3 px-4 text-right font-mono text-xs" style={{ color: "#94A3B8" }}>
-                            ${s.amountSpent.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="py-3 px-4 text-right font-mono text-xs" style={{ color: "#00E676" }}>
-                            {s.leads}
-                          </td>
-                          <td className="py-3 px-4 text-right font-mono text-xs font-bold" style={{ color: cplColor }}>
-                            ${s.costPerLead.toFixed(2)}
-                          </td>
-                          <td className="py-3 px-4 text-right font-mono text-xs" style={{ color: "#64748B" }}>
-                            {s.ctrAll.toFixed(2)}%
-                          </td>
-                          <td className="py-3 px-4 text-right font-mono text-xs" style={{ color: "#64748B" }}>
-                            ${s.cpm.toFixed(2)}
-                          </td>
-                          <td className="py-3 px-4 text-right font-mono text-[10px]" style={{ color: "#475569" }}>
-                            {new Date(s.fetchedAt).toLocaleString()}
-                          </td>
+                          <td className="py-3 px-4 text-xs font-mono" style={{ color: "#64748B" }}>{s.dateRangeSince} → {s.dateRangeUntil}</td>
+                          <td className="py-3 px-4 text-right font-mono text-xs" style={{ color: "#94A3B8" }}>${s.amountSpent.toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                          <td className="py-3 px-4 text-right font-mono text-xs" style={{ color: "#00E676" }}>{s.leads}</td>
+                          <td className="py-3 px-4 text-right font-mono text-xs font-bold" style={{ color: cplColor }}>${s.costPerLead.toFixed(2)}</td>
+                          <td className="py-3 px-4 text-right font-mono text-xs" style={{ color: "#64748B" }}>{s.ctrAll.toFixed(2)}%</td>
+                          <td className="py-3 px-4 text-right font-mono text-xs" style={{ color: "#64748B" }}>${s.cpm.toFixed(2)}</td>
+                          <td className="py-3 px-4 text-right font-mono text-[10px]" style={{ color: "#475569" }}>{new Date(s.fetchedAt).toLocaleString()}</td>
                         </tr>
                       );
                     })}
