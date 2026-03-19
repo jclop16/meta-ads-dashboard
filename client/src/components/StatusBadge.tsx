@@ -1,4 +1,5 @@
 // Design: Dark terminal — pill-shaped performance status badges
+// Status is driven dynamically by CplTargetContext throughout the dashboard
 import { PerformanceStatus } from "@/lib/data";
 
 interface StatusBadgeProps {
@@ -8,7 +9,7 @@ interface StatusBadgeProps {
 
 const statusConfig = {
   excellent: {
-    label: "Excellent",
+    label: "On Target",
     className: "status-win",
     dot: "#00E676",
   },
@@ -18,7 +19,7 @@ const statusConfig = {
     dot: "#FFB300",
   },
   poor: {
-    label: "Poor",
+    label: "Over Target",
     className: "status-loss",
     dot: "#FF3B5C",
   },

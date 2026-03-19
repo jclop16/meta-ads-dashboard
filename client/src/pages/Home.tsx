@@ -4,13 +4,14 @@
 // - Deep charcoal (#0D0F14) base with electric cyan (#00D4FF) accents
 // - JetBrains Mono for all numbers, Space Grotesk for headings
 // - Color-coded performance: green=win, amber=moderate, red=loss
-// - Bento-grid layout with glowing card borders
+// - All CPL highlights are DYNAMIC via CplTargetContext
 // ============================================================
 
+import { useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend, LineChart, Line, AreaChart, Area,
+  PieChart, Pie, Cell, AreaChart, Area, ReferenceLine,
 } from "recharts";
 import {
   DollarSign, Users, MousePointer, TrendingUp, Eye, Target,
@@ -20,10 +21,25 @@ import MetricCard from "@/components/MetricCard";
 import StatusBadge from "@/components/StatusBadge";
 import ActionPanel from "@/components/ActionPanel";
 import CampaignTable from "@/components/CampaignTable";
+import CplTargetInput from "@/components/CplTargetInput";
+import { CplTargetProvider, useCplTarget } from "@/contexts/CplTargetContext";
 import {
   accountMetrics, campaigns, actionItems, spendByObjective,
-  leadsByCampaign, REPORT_DATE_RANGE, ACCOUNT_NAME,
+  REPORT_DATE_RANGE, ACCOUNT_NAME,
 } from "@/lib/data";
+
+// ── Stable daily trend data (seeded, not random on each render) ─
+const dailyTrend = Array.from({ length: 30 }, (_, i) => {
+  const seed = Math.sin(i * 9301 + 49297) * 0.5 + 0.5;
+  const seed2 = Math.sin(i * 6971 + 1234) * 0.5 + 0.5;
+  const base = 440 + Math.sin(i / 3) * 60 + seed * 40;
+  const leads = Math.round(18 + Math.sin(i / 4) * 8 + seed2 * 6);
+  const day = 17 + i;
+  const label = day > 28 ? `Mar ${day - 28}` : `Feb ${day}`;
+  return { day: label, spent: parseFloat(base.toFixed(2)), leads };
+});
+
+const DONUT_COLORS = ["#00D4FF", "#00E676", "#FF3B5C"];
 
 // ── Custom Tooltip ──────────────────────────────────────────
 function DarkTooltip({ active, payload, label }: any) {
@@ -40,7 +56,7 @@ function DarkTooltip({ active, payload, label }: any) {
       <p className="mb-1 font-semibold" style={{ color: "#94A3B8" }}>{label}</p>
       {payload.map((p: any, i: number) => (
         <p key={i} style={{ color: p.color || "#00D4FF" }}>
-          {p.name}: {typeof p.value === "number" && p.name?.toLowerCase().includes("$")
+          {p.name}: {typeof p.value === "number" && String(p.name).toLowerCase().includes("$")
             ? `$${p.value.toFixed(2)}`
             : p.value}
         </p>
@@ -49,45 +65,55 @@ function DarkTooltip({ active, payload, label }: any) {
   );
 }
 
-// ── CPL vs Spend scatter-style bar chart data ───────────────
-const cplSpendData = campaigns
-  .filter(c => c.costPerLead !== null)
-  .sort((a, b) => (a.costPerLead ?? 0) - (b.costPerLead ?? 0))
-  .map(c => ({
-    name: c.shortName.replace("DS | ", "").replace(" | Leads | CBO | FB", ""),
-    cpl: c.costPerLead,
-    spent: c.amountSpent,
-    status: c.status,
-  }));
+// ── Inner dashboard — has access to CplTargetContext ────────
+function DashboardContent() {
+  const { cplTarget, getStatus, getColor } = useCplTarget();
 
-const cplColors = cplSpendData.map(d =>
-  d.status === "excellent" ? "#00E676" : d.status === "moderate" ? "#FFB300" : "#FF3B5C"
-);
-
-// ── Spend by objective donut ────────────────────────────────
-const DONUT_COLORS = ["#00D4FF", "#00E676", "#FF3B5C"];
-
-// ── Simulated daily spend trend (30 days) ──────────────────
-const dailyTrend = Array.from({ length: 30 }, (_, i) => {
-  const base = 480 + Math.sin(i / 3) * 60 + Math.random() * 40;
-  const leads = Math.round(20 + Math.sin(i / 4) * 8 + Math.random() * 6);
-  return {
-    day: `Feb ${17 + i > 28 ? `Mar ${17 + i - 28}` : 17 + i}`,
-    spent: parseFloat(base.toFixed(2)),
-    leads,
-  };
-});
-
-export default function Home() {
   const totalLeads = accountMetrics.leads;
   const totalSpend = accountMetrics.amountSpent;
   const avgCPL = accountMetrics.costPerLead;
 
-  const excellentCount = campaigns.filter(c => c.status === "excellent").length;
-  const poorCount = campaigns.filter(c => c.status === "poor").length;
-  const wastedSpend = campaigns
-    .filter(c => c.status === "poor")
-    .reduce((s, c) => s + c.amountSpent, 0);
+  // Dynamic counts based on current target
+  const excellentCampaigns = useMemo(
+    () => campaigns.filter(c => getStatus(c.costPerLead) === "excellent"),
+    [cplTarget]
+  );
+  const poorCampaigns = useMemo(
+    () => campaigns.filter(c => getStatus(c.costPerLead) === "poor"),
+    [cplTarget]
+  );
+  const wastedSpend = useMemo(
+    () => poorCampaigns.reduce((s, c) => s + c.amountSpent, 0),
+    [poorCampaigns]
+  );
+
+  // CPL bar chart data — colors driven by target
+  const cplChartData = useMemo(
+    () =>
+      campaigns
+        .filter(c => c.costPerLead !== null)
+        .sort((a, b) => (a.costPerLead ?? 0) - (b.costPerLead ?? 0))
+        .map(c => ({
+          name: c.shortName,
+          cpl: c.costPerLead,
+          color: getColor(c.costPerLead),
+        })),
+    [cplTarget]
+  );
+
+  // Lead volume chart — colors driven by target
+  const leadsChartData = useMemo(
+    () =>
+      campaigns
+        .filter(c => c.leads > 0)
+        .sort((a, b) => b.leads - a.leads)
+        .map(c => ({
+          name: c.shortName,
+          leads: c.leads,
+          color: getColor(c.costPerLead),
+        })),
+    [cplTarget]
+  );
 
   return (
     <div
@@ -96,14 +122,14 @@ export default function Home() {
     >
       {/* ── HEADER ─────────────────────────────────────────── */}
       <header
-        className="sticky top-0 z-50 px-6 py-3 flex items-center justify-between"
+        className="sticky top-0 z-50 px-4 sm:px-6 py-3 flex items-center justify-between gap-3 flex-wrap"
         style={{
           background: "rgba(13,15,20,0.92)",
           backdropFilter: "blur(12px)",
           borderBottom: "1px solid rgba(0,212,255,0.08)",
         }}
       >
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-shrink-0">
           <img
             src="https://d2xsxph8kpxj0f.cloudfront.net/310519663448934432/QTGwE5aAupQz3MyiEqLWFv/meta-logo-icon-eYSYyQuej67BqrVa9EmrMH.webp"
             alt="Logo"
@@ -122,7 +148,12 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        {/* CPL Target Input — center of header */}
+        <div className="flex-1 flex justify-center">
+          <CplTargetInput />
+        </div>
+
+        <div className="flex items-center gap-3 flex-shrink-0">
           <div
             className="hidden sm:flex items-center gap-1.5 text-xs font-mono px-3 py-1.5 rounded-full"
             style={{
@@ -157,7 +188,6 @@ export default function Home() {
           backgroundPosition: "center top",
         }}
       >
-        {/* Dark overlay */}
         <div
           className="absolute inset-0"
           style={{ background: "linear-gradient(135deg, rgba(13,15,20,0.7) 0%, rgba(13,15,20,0.9) 60%)" }}
@@ -184,7 +214,14 @@ export default function Home() {
               <span style={{ color: "#00E676" }}>{totalLeads} leads</span>
             </h2>
             <p className="text-sm" style={{ color: "#64748B" }}>
-              {excellentCount} campaigns performing excellently · {poorCount} campaigns wasting budget
+              vs. your CPL target of{" "}
+              <span style={{ color: "#00D4FF" }} className="font-mono font-semibold">
+                ${cplTarget.toFixed(2)}
+              </span>
+              {" "}·{" "}
+              <span style={{ color: "#00E676" }}>{excellentCampaigns.length} on target</span>
+              {" "}·{" "}
+              <span style={{ color: "#FF3B5C" }}>{poorCampaigns.length} over target</span>
             </p>
           </motion.div>
         </div>
@@ -214,11 +251,11 @@ export default function Home() {
               delay={0.05}
             />
             <MetricCard
-              label="Cost per Lead"
+              label="Avg CPL"
               value={`$${avgCPL.toFixed(2)}`}
-              subValue="Account average"
+              subValue={`Target: $${cplTarget.toFixed(2)}`}
               icon={<TrendingUp size={14} />}
-              accent="win"
+              accent={avgCPL <= cplTarget ? "win" : "warn"}
               delay={0.1}
             />
             <MetricCard
@@ -246,51 +283,26 @@ export default function Home() {
               delay={0.25}
             />
           </div>
-
-          {/* Secondary KPIs */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
-            <MetricCard
-              label="CPM"
-              value={`$${accountMetrics.cpm.toFixed(2)}`}
-              subValue="Cost per 1,000 impressions"
-              accent="neutral"
-              delay={0.3}
-            />
-            <MetricCard
-              label="CPC (all)"
-              value={`$${accountMetrics.cpcAll.toFixed(4)}`}
-              subValue="Cost per click (all)"
-              accent="neutral"
-              delay={0.35}
-            />
-            <MetricCard
-              label="CPC (link)"
-              value={`$${accountMetrics.cpcLink.toFixed(4)}`}
-              subValue="Cost per link click"
-              accent="neutral"
-              delay={0.4}
-            />
-            <MetricCard
-              label="Frequency"
-              value={`${accountMetrics.frequency}×`}
-              subValue="Avg impressions per account"
-              accent="warn"
-              delay={0.45}
-            />
+            <MetricCard label="CPM" value={`$${accountMetrics.cpm.toFixed(2)}`} subValue="Cost per 1,000 impressions" accent="neutral" delay={0.3} />
+            <MetricCard label="CPC (all)" value={`$${accountMetrics.cpcAll.toFixed(4)}`} subValue="Cost per click (all)" accent="neutral" delay={0.35} />
+            <MetricCard label="CPC (link)" value={`$${accountMetrics.cpcLink.toFixed(4)}`} subValue="Cost per link click" accent="neutral" delay={0.4} />
+            <MetricCard label="Frequency" value={`${accountMetrics.frequency}×`} subValue="Avg impressions per account" accent="warn" delay={0.45} />
           </div>
         </section>
 
         {/* ── CHARTS ROW ───────────────────────────────────── */}
         <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-          {/* CPL by Campaign */}
+          {/* CPL by Campaign — dynamic colors */}
           <div className="lg:col-span-2 glow-card rounded-lg p-5">
             <SectionLabel icon={<TrendingUp size={13} />} label="Cost per Lead by Campaign" />
             <p className="text-xs mt-1 mb-4" style={{ color: "#475569" }}>
-              Sorted by CPL ascending · Green ≤$20 · Amber $20–$35 · Red &gt;$35
+              Sorted by CPL ascending · Colors update with your CPL target · Dashed line = your target ($
+              {cplTarget.toFixed(2)})
             </p>
             <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={cplSpendData} layout="vertical" margin={{ left: 8, right: 40, top: 4, bottom: 4 }}>
+              <BarChart data={cplChartData} layout="vertical" margin={{ left: 8, right: 50, top: 4, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false} />
                 <XAxis
                   type="number"
@@ -302,15 +314,28 @@ export default function Home() {
                 <YAxis
                   type="category"
                   dataKey="name"
-                  width={160}
+                  width={170}
                   tick={{ fill: "#64748B", fontSize: 9, fontFamily: "JetBrains Mono" }}
                   axisLine={false}
                   tickLine={false}
                 />
                 <Tooltip content={<DarkTooltip />} />
+                <ReferenceLine
+                  x={cplTarget}
+                  stroke="#00D4FF"
+                  strokeDasharray="4 3"
+                  strokeWidth={1.5}
+                  label={{
+                    value: `Target $${cplTarget.toFixed(0)}`,
+                    position: "right",
+                    fill: "#00D4FF",
+                    fontSize: 9,
+                    fontFamily: "JetBrains Mono",
+                  }}
+                />
                 <Bar dataKey="cpl" name="Cost per Lead ($)" radius={[0, 3, 3, 0]}>
-                  {cplSpendData.map((_, i) => (
-                    <Cell key={i} fill={cplColors[i]} fillOpacity={0.85} />
+                  {cplChartData.map((d, i) => (
+                    <Cell key={i} fill={d.color} fillOpacity={0.85} />
                   ))}
                 </Bar>
               </BarChart>
@@ -320,33 +345,17 @@ export default function Home() {
           {/* Spend by Objective Donut */}
           <div className="glow-card rounded-lg p-5">
             <SectionLabel icon={<DollarSign size={13} />} label="Spend by Objective" />
-            <p className="text-xs mt-1 mb-2" style={{ color: "#475569" }}>
-              Total: $14,647.37
-            </p>
+            <p className="text-xs mt-1 mb-2" style={{ color: "#475569" }}>Total: $14,647.37</p>
             <ResponsiveContainer width="100%" height={200}>
               <PieChart>
-                <Pie
-                  data={spendByObjective}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={55}
-                  outerRadius={80}
-                  paddingAngle={3}
-                  dataKey="value"
-                >
-                  {spendByObjective.map((entry, i) => (
+                <Pie data={spendByObjective} cx="50%" cy="50%" innerRadius={55} outerRadius={80} paddingAngle={3} dataKey="value">
+                  {spendByObjective.map((_, i) => (
                     <Cell key={i} fill={DONUT_COLORS[i]} fillOpacity={0.9} />
                   ))}
                 </Pie>
                 <Tooltip
                   formatter={(v: number) => [`$${v.toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "Spent"]}
-                  contentStyle={{
-                    background: "#13161E",
-                    border: "1px solid rgba(0,212,255,0.2)",
-                    borderRadius: "8px",
-                    fontSize: "11px",
-                    fontFamily: "JetBrains Mono",
-                  }}
+                  contentStyle={{ background: "#13161E", border: "1px solid rgba(0,212,255,0.2)", borderRadius: "8px", fontSize: "11px", fontFamily: "JetBrains Mono" }}
                 />
               </PieChart>
             </ResponsiveContainer>
@@ -366,45 +375,28 @@ export default function Home() {
           </div>
         </section>
 
-        {/* ── LEADS BAR CHART ──────────────────────────────── */}
+        {/* ── LEADS + TREND ────────────────────────────────── */}
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="glow-card rounded-lg p-5">
             <SectionLabel icon={<Target size={13} />} label="Lead Volume by Campaign" />
             <p className="text-xs mt-1 mb-4" style={{ color: "#475569" }}>
-              Campaigns with at least 1 lead conversion
+              Bar color reflects CPL performance vs. your target
             </p>
             <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={leadsByCampaign} margin={{ left: 0, right: 16, top: 4, bottom: 60 }}>
+              <BarChart data={leadsChartData} margin={{ left: 0, right: 16, top: 4, bottom: 60 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-                <XAxis
-                  dataKey="name"
-                  tick={{ fill: "#475569", fontSize: 9, fontFamily: "JetBrains Mono" }}
-                  angle={-35}
-                  textAnchor="end"
-                  interval={0}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fill: "#475569", fontSize: 10, fontFamily: "JetBrains Mono" }}
-                  axisLine={false}
-                  tickLine={false}
-                />
+                <XAxis dataKey="name" tick={{ fill: "#475569", fontSize: 9, fontFamily: "JetBrains Mono" }} angle={-35} textAnchor="end" interval={0} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: "#475569", fontSize: 10, fontFamily: "JetBrains Mono" }} axisLine={false} tickLine={false} />
                 <Tooltip content={<DarkTooltip />} />
                 <Bar dataKey="leads" name="Leads" radius={[3, 3, 0, 0]}>
-                  {leadsByCampaign.map((d, i) => (
-                    <Cell
-                      key={i}
-                      fill={d.status === "excellent" ? "#00E676" : d.status === "moderate" ? "#00D4FF" : "#FF3B5C"}
-                      fillOpacity={0.8}
-                    />
+                  {leadsChartData.map((d, i) => (
+                    <Cell key={i} fill={d.color} fillOpacity={0.8} />
                   ))}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
 
-          {/* Daily Spend Trend */}
           <div className="glow-card rounded-lg p-5">
             <SectionLabel icon={<RefreshCw size={13} />} label="Daily Spend & Lead Trend" />
             <p className="text-xs mt-1 mb-4" style={{ color: "#475569" }}>
@@ -423,46 +415,12 @@ export default function Home() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-                <XAxis
-                  dataKey="day"
-                  tick={{ fill: "#475569", fontSize: 9, fontFamily: "JetBrains Mono" }}
-                  interval={4}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  yAxisId="left"
-                  tick={{ fill: "#475569", fontSize: 10, fontFamily: "JetBrains Mono" }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={v => `$${v}`}
-                />
-                <YAxis
-                  yAxisId="right"
-                  orientation="right"
-                  tick={{ fill: "#475569", fontSize: 10, fontFamily: "JetBrains Mono" }}
-                  axisLine={false}
-                  tickLine={false}
-                />
+                <XAxis dataKey="day" tick={{ fill: "#475569", fontSize: 9, fontFamily: "JetBrains Mono" }} interval={4} axisLine={false} tickLine={false} />
+                <YAxis yAxisId="left" tick={{ fill: "#475569", fontSize: 10, fontFamily: "JetBrains Mono" }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
+                <YAxis yAxisId="right" orientation="right" tick={{ fill: "#475569", fontSize: 10, fontFamily: "JetBrains Mono" }} axisLine={false} tickLine={false} />
                 <Tooltip content={<DarkTooltip />} />
-                <Area
-                  yAxisId="left"
-                  type="monotone"
-                  dataKey="spent"
-                  name="Amount Spent ($)"
-                  stroke="#00D4FF"
-                  strokeWidth={1.5}
-                  fill="url(#spendGrad)"
-                />
-                <Area
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="leads"
-                  name="Leads"
-                  stroke="#00E676"
-                  strokeWidth={1.5}
-                  fill="url(#leadsGrad)"
-                />
+                <Area yAxisId="left" type="monotone" dataKey="spent" name="Amount Spent ($)" stroke="#00D4FF" strokeWidth={1.5} fill="url(#spendGrad)" />
+                <Area yAxisId="right" type="monotone" dataKey="leads" name="Leads" stroke="#00E676" strokeWidth={1.5} fill="url(#leadsGrad)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -472,105 +430,104 @@ export default function Home() {
         <section>
           <SectionLabel icon={<BarChart2 size={13} />} label="Campaign Breakdown" />
           <p className="text-xs mt-1 mb-3" style={{ color: "#475569" }}>
-            Click any row to expand recommendations · Sort by any column header
+            All highlights update live with your CPL target · Click any row to expand · Sort by any column
           </p>
           <CampaignTable campaigns={campaigns} />
         </section>
 
-        {/* ── WINNERS & WASTERS ────────────────────────────── */}
+        {/* ── WINNERS & WASTERS (dynamic) ──────────────────── */}
         <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Winners */}
           <div className="glow-card rounded-lg p-5">
-            <SectionLabel icon={<CheckCircle size={13} />} label="What's Working" color="#00E676" />
+            <SectionLabel icon={<CheckCircle size={13} />} label="On Target" color="#00E676" />
             <p className="text-xs mt-1 mb-4" style={{ color: "#475569" }}>
-              Campaigns with CPL ≤ $20 — below account average of $22.43
+              Campaigns with CPL ≤ your target of{" "}
+              <span className="font-mono" style={{ color: "#00D4FF" }}>${cplTarget.toFixed(2)}</span>
             </p>
-            <div className="space-y-3">
-              {campaigns
-                .filter(c => c.status === "excellent")
-                .sort((a, b) => (a.costPerLead ?? 999) - (b.costPerLead ?? 999))
-                .map((c, i) => (
-                  <motion.div
-                    key={c.id}
-                    initial={{ opacity: 0, x: -8 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.08 }}
-                    className="rounded-md p-3"
-                    style={{
-                      background: "rgba(0,230,118,0.05)",
-                      border: "1px solid rgba(0,230,118,0.15)",
-                    }}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p
-                          className="text-sm font-semibold mb-1"
-                          style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#CBD5E1" }}
-                        >
-                          {c.shortName}
-                        </p>
-                        <div className="flex gap-3 flex-wrap">
-                          <Stat label="CPL" value={`$${c.costPerLead?.toFixed(2)}`} color="#00E676" />
-                          <Stat label="Leads" value={String(c.leads)} color="#00E676" />
-                          <Stat label="Spent" value={`$${c.amountSpent.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`} color="#94A3B8" />
-                          <Stat label="CTR (all)" value={`${c.ctrAll}%`} color="#94A3B8" />
+            {excellentCampaigns.length === 0 ? (
+              <p className="text-xs font-mono" style={{ color: "#475569" }}>
+                No campaigns meet this target. Try raising your CPL goal.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {excellentCampaigns
+                  .sort((a, b) => (a.costPerLead ?? 999) - (b.costPerLead ?? 999))
+                  .map((c, i) => (
+                    <motion.div
+                      key={c.id}
+                      initial={{ opacity: 0, x: -8 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.07 }}
+                      className="rounded-md p-3"
+                      style={{ background: "rgba(0,230,118,0.05)", border: "1px solid rgba(0,230,118,0.15)" }}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold mb-1" style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#CBD5E1" }}>
+                            {c.shortName}
+                          </p>
+                          <div className="flex gap-3 flex-wrap">
+                            <Stat label="CPL" value={`$${c.costPerLead?.toFixed(2)}`} color="#00E676" />
+                            <Stat label="vs Target" value={`-$${(cplTarget - (c.costPerLead ?? 0)).toFixed(2)}`} color="#00E676" />
+                            <Stat label="Leads" value={String(c.leads)} color="#94A3B8" />
+                            <Stat label="Spent" value={`$${c.amountSpent.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`} color="#94A3B8" />
+                          </div>
                         </div>
+                        <StatusBadge status="excellent" size="sm" />
                       </div>
-                      <StatusBadge status="excellent" size="sm" />
-                    </div>
-                  </motion.div>
-                ))}
-            </div>
+                    </motion.div>
+                  ))}
+              </div>
+            )}
           </div>
 
-          {/* Wasters */}
+          {/* Over Target */}
           <div className="glow-card rounded-lg p-5">
-            <SectionLabel icon={<AlertTriangle size={13} />} label="What's Wasting Budget" color="#FF3B5C" />
+            <SectionLabel icon={<AlertTriangle size={13} />} label="Over Target" color="#FF3B5C" />
             <p className="text-xs mt-1 mb-4" style={{ color: "#475569" }}>
-              Campaigns with CPL &gt; $35 — 3× above account average ·{" "}
+              Campaigns with CPL &gt; 1.5× your target ·{" "}
               <span style={{ color: "#FF3B5C" }}>
                 ${wastedSpend.toLocaleString("en-US", { minimumFractionDigits: 2 })} at risk
               </span>
             </p>
-            <div className="space-y-3">
-              {campaigns
-                .filter(c => c.status === "poor")
-                .sort((a, b) => b.amountSpent - a.amountSpent)
-                .map((c, i) => (
-                  <motion.div
-                    key={c.id}
-                    initial={{ opacity: 0, x: 8 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.08 }}
-                    className="rounded-md p-3"
-                    style={{
-                      background: "rgba(255,59,92,0.06)",
-                      border: "1px solid rgba(255,59,92,0.2)",
-                    }}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p
-                          className="text-sm font-semibold mb-1"
-                          style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#CBD5E1" }}
-                        >
-                          {c.shortName}
-                        </p>
-                        <div className="flex gap-3 flex-wrap">
-                          <Stat label="CPL" value={`$${c.costPerLead?.toFixed(2)}`} color="#FF3B5C" />
-                          <Stat label="Leads" value={String(c.leads)} color="#FF3B5C" />
-                          <Stat label="Spent" value={`$${c.amountSpent.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`} color="#94A3B8" />
-                          <Stat label="CPM" value={`$${c.cpm.toFixed(2)}`} color="#FF3B5C" />
+            {poorCampaigns.length === 0 ? (
+              <p className="text-xs font-mono" style={{ color: "#475569" }}>
+                All campaigns are within 1.5× of your target. 
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {poorCampaigns
+                  .sort((a, b) => b.amountSpent - a.amountSpent)
+                  .map((c, i) => (
+                    <motion.div
+                      key={c.id}
+                      initial={{ opacity: 0, x: 8 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.07 }}
+                      className="rounded-md p-3"
+                      style={{ background: "rgba(255,59,92,0.06)", border: "1px solid rgba(255,59,92,0.2)" }}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold mb-1" style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#CBD5E1" }}>
+                            {c.shortName}
+                          </p>
+                          <div className="flex gap-3 flex-wrap">
+                            <Stat label="CPL" value={`$${c.costPerLead?.toFixed(2)}`} color="#FF3B5C" />
+                            <Stat label="vs Target" value={`+$${((c.costPerLead ?? 0) - cplTarget).toFixed(2)}`} color="#FF3B5C" />
+                            <Stat label="Leads" value={String(c.leads)} color="#94A3B8" />
+                            <Stat label="CPM" value={`$${c.cpm.toFixed(2)}`} color="#FF3B5C" />
+                          </div>
+                          <p className="text-xs mt-2 leading-relaxed" style={{ color: "#64748B" }}>
+                            {c.recommendation}
+                          </p>
                         </div>
-                        <p className="text-xs mt-2 leading-relaxed" style={{ color: "#64748B" }}>
-                          {c.recommendation}
-                        </p>
+                        <StatusBadge status="poor" size="sm" />
                       </div>
-                      <StatusBadge status="poor" size="sm" />
-                    </div>
-                  </motion.div>
-                ))}
-            </div>
+                    </motion.div>
+                  ))}
+              </div>
+            )}
           </div>
         </section>
 
@@ -596,6 +553,15 @@ export default function Home() {
         </footer>
       </main>
     </div>
+  );
+}
+
+// ── Root export — wraps everything in the CPL target provider ─
+export default function Home() {
+  return (
+    <CplTargetProvider>
+      <DashboardContent />
+    </CplTargetProvider>
   );
 }
 
