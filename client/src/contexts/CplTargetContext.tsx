@@ -1,39 +1,80 @@
 // CPL Target Context — shares the user-defined CPL goal across all dashboard components
-import { createContext, useContext, useState, ReactNode } from "react";
+// Now backed by the database: loads on mount, persists on change
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
+import { trpc } from "@/lib/trpc";
+
+export type CplStatus = "excellent" | "moderate" | "poor";
 
 interface CplTargetContextValue {
   cplTarget: number;
   setCplTarget: (v: number) => void;
   /** Returns "excellent" | "moderate" | "poor" relative to the user's target */
-  getStatus: (cpl: number | null) => "excellent" | "moderate" | "poor";
+  getStatus: (cpl: number | null) => CplStatus;
   /** Returns the fill color for a given CPL relative to the target */
   getColor: (cpl: number | null) => string;
+  /** True while the initial DB value is loading */
+  isLoading: boolean;
 }
 
 const CplTargetContext = createContext<CplTargetContextValue | null>(null);
 
-// Default target = account average CPL
 const DEFAULT_TARGET = 22.43;
 
 export function CplTargetProvider({ children }: { children: ReactNode }) {
-  const [cplTarget, setCplTarget] = useState(DEFAULT_TARGET);
+  const [cplTarget, setCplTargetLocal] = useState(DEFAULT_TARGET);
 
-  function getStatus(cpl: number | null): "excellent" | "moderate" | "poor" {
-    if (cpl === null) return "moderate";
-    if (cpl <= cplTarget) return "excellent";
-    if (cpl <= cplTarget * 1.5) return "moderate";
-    return "poor";
-  }
+  // Load persisted value from DB on mount
+  const { data, isLoading } = trpc.settings.getCplTarget.useQuery(undefined, {
+    staleTime: 60_000,
+  });
 
-  function getColor(cpl: number | null): string {
-    const status = getStatus(cpl);
-    if (status === "excellent") return "#00E676";
-    if (status === "moderate") return "#FFB300";
-    return "#FF3B5C";
-  }
+  useEffect(() => {
+    if (data?.cplTarget != null) {
+      setCplTargetLocal(data.cplTarget);
+    }
+  }, [data]);
+
+  // Persist to DB whenever user changes the target
+  const setCplTargetMutation = trpc.settings.setCplTarget.useMutation();
+  const utils = trpc.useUtils();
+
+  const setCplTarget = useCallback(
+    (v: number) => {
+      setCplTargetLocal(v);
+      setCplTargetMutation.mutate(
+        { value: v },
+        {
+          onSuccess: () => {
+            utils.settings.getCplTarget.invalidate();
+          },
+        }
+      );
+    },
+    [setCplTargetMutation, utils]
+  );
+
+  const getStatus = useCallback(
+    (cpl: number | null): CplStatus => {
+      if (cpl == null) return "moderate";
+      if (cpl <= cplTarget) return "excellent";
+      if (cpl <= cplTarget * 1.5) return "moderate";
+      return "poor";
+    },
+    [cplTarget]
+  );
+
+  const getColor = useCallback(
+    (cpl: number | null): string => {
+      const status = getStatus(cpl);
+      if (status === "excellent") return "#00E676";
+      if (status === "moderate") return "#FFB300";
+      return "#FF3B5C";
+    },
+    [getStatus]
+  );
 
   return (
-    <CplTargetContext.Provider value={{ cplTarget, setCplTarget, getStatus, getColor }}>
+    <CplTargetContext.Provider value={{ cplTarget, setCplTarget, getStatus, getColor, isLoading }}>
       {children}
     </CplTargetContext.Provider>
   );

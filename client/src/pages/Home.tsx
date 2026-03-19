@@ -8,6 +8,7 @@
 // ============================================================
 
 import { useMemo } from "react";
+import { trpc } from "@/lib/trpc";
 import { motion } from "framer-motion";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -24,7 +25,6 @@ import CampaignTable from "@/components/CampaignTable";
 import CplTargetInput from "@/components/CplTargetInput";
 import { useCplTarget } from "@/contexts/CplTargetContext";
 import {
-  accountMetrics, campaigns, actionItems, spendByObjective,
   REPORT_DATE_RANGE, ACCOUNT_NAME,
 } from "@/lib/data";
 
@@ -69,18 +69,35 @@ function DarkTooltip({ active, payload, label }: any) {
 function DashboardContent() {
   const { cplTarget, getStatus, getColor } = useCplTarget();
 
-  const totalLeads = accountMetrics.leads;
-  const totalSpend = accountMetrics.amountSpent;
-  const avgCPL = accountMetrics.costPerLead;
+  // Load data from database via tRPC
+  const { data: metricsData } = trpc.dashboard.accountMetrics.useQuery();
+  const { data: campaignsData } = trpc.dashboard.campaigns.useQuery();
+  const { data: actionItemsData } = trpc.dashboard.actionItems.useQuery();
+
+  // Fall back to zeros while loading
+  const totalLeads = metricsData?.leads ?? 0;
+  const totalSpend = metricsData?.amountSpent ?? 0;
+  const avgCPL = metricsData?.costPerLead ?? 0;
+  const campaigns = campaignsData ?? [];
+  const actionItems = actionItemsData ?? [];
+
+  // Compute spend by objective from live campaign data
+  const spendByObjective = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const c of campaigns) {
+      map[c.objective] = (map[c.objective] ?? 0) + c.amountSpent;
+    }
+    return Object.entries(map).map(([name, value]) => ({ name, value }));
+  }, [campaigns]);
 
   // Dynamic counts based on current target
   const excellentCampaigns = useMemo(
     () => campaigns.filter(c => getStatus(c.costPerLead) === "excellent"),
-    [cplTarget]
+    [campaigns, cplTarget]
   );
   const poorCampaigns = useMemo(
     () => campaigns.filter(c => getStatus(c.costPerLead) === "poor"),
-    [cplTarget]
+    [campaigns, cplTarget]
   );
   const wastedSpend = useMemo(
     () => poorCampaigns.reduce((s, c) => s + c.amountSpent, 0),
@@ -98,7 +115,7 @@ function DashboardContent() {
           cpl: c.costPerLead,
           color: getColor(c.costPerLead),
         })),
-    [cplTarget]
+    [campaigns, cplTarget]
   );
 
   // Lead volume chart — colors driven by target
@@ -112,7 +129,7 @@ function DashboardContent() {
           leads: c.leads,
           color: getColor(c.costPerLead),
         })),
-    [cplTarget]
+    [campaigns, cplTarget]
   );
 
   return (
@@ -260,15 +277,15 @@ function DashboardContent() {
             />
             <MetricCard
               label="Impressions"
-              value={`${(accountMetrics.impressions / 1000).toFixed(0)}K`}
-              subValue={accountMetrics.impressions.toLocaleString()}
+              value={`${((metricsData?.impressions ?? 0) / 1000).toFixed(0)}K`}
+              subValue={(metricsData?.impressions ?? 0).toLocaleString()}
               icon={<Eye size={14} />}
               accent="neutral"
               delay={0.15}
             />
             <MetricCard
               label="Reach"
-              value={`${(accountMetrics.reach / 1000).toFixed(0)}K`}
+              value={`${((metricsData?.reach ?? 0) / 1000).toFixed(0)}K`}
               subValue="Accounts Center accounts"
               icon={<Users size={14} />}
               accent="neutral"
@@ -276,18 +293,18 @@ function DashboardContent() {
             />
             <MetricCard
               label="CTR (all)"
-              value={`${accountMetrics.ctrAll}%`}
-              subValue={`Link CTR: ${accountMetrics.ctrLink}%`}
+              value={`${metricsData?.ctrAll ?? 0}%`}
+              subValue={`Link CTR: ${metricsData?.ctrLink ?? 0}%`}
               icon={<MousePointer size={14} />}
               accent="cyan"
               delay={0.25}
             />
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
-            <MetricCard label="CPM" value={`$${accountMetrics.cpm.toFixed(2)}`} subValue="Cost per 1,000 impressions" accent="neutral" delay={0.3} />
-            <MetricCard label="CPC (all)" value={`$${accountMetrics.cpcAll.toFixed(4)}`} subValue="Cost per click (all)" accent="neutral" delay={0.35} />
-            <MetricCard label="CPC (link)" value={`$${accountMetrics.cpcLink.toFixed(4)}`} subValue="Cost per link click" accent="neutral" delay={0.4} />
-            <MetricCard label="Frequency" value={`${accountMetrics.frequency}×`} subValue="Avg impressions per account" accent="warn" delay={0.45} />
+            <MetricCard label="CPM" value={`$${(metricsData?.cpm ?? 0).toFixed(2)}`} subValue="Cost per 1,000 impressions" accent="neutral" delay={0.3} />
+            <MetricCard label="CPC (all)" value={`$${(metricsData?.cpcAll ?? 0).toFixed(4)}`} subValue="Cost per click (all)" accent="neutral" delay={0.35} />
+            <MetricCard label="CPC (link)" value={`$${(metricsData?.cpcLink ?? 0).toFixed(4)}`} subValue="Cost per link click" accent="neutral" delay={0.4} />
+            <MetricCard label="Frequency" value={`${metricsData?.frequency ?? 0}×`} subValue="Avg impressions per account" accent="warn" delay={0.45} />
           </div>
         </section>
 

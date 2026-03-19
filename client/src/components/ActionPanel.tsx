@@ -1,10 +1,22 @@
 // Design: Dark terminal — action items with priority color coding
+// Now supports DB-backed items with completed toggle
 import { motion } from "framer-motion";
-import { ActionItem } from "@/lib/data";
-import { AlertTriangle, TrendingUp, Settings, FlaskConical, Pause, Zap } from "lucide-react";
+import { AlertTriangle, TrendingUp, Settings, FlaskConical, Pause, Zap, CheckCircle2 } from "lucide-react";
+import { trpc } from "@/lib/trpc";
+
+// DB-typed action item (from server)
+interface DbActionItem {
+  id: number;
+  priority: "critical" | "high" | "medium";
+  category: "pause" | "scale" | "optimize" | "test";
+  title: string;
+  description: string;
+  estimatedImpact: string;
+  completed: boolean;
+}
 
 interface ActionPanelProps {
-  items: ActionItem[];
+  items: DbActionItem[];
 }
 
 const priorityConfig = {
@@ -46,6 +58,11 @@ const categoryLabel = {
 };
 
 export default function ActionPanel({ items }: ActionPanelProps) {
+  const utils = trpc.useUtils();
+  const toggleMutation = trpc.dashboard.toggleActionItem.useMutation({
+    onSuccess: () => utils.dashboard.actionItems.invalidate(),
+  });
+
   return (
     <div className="space-y-3">
       {items.map((item, i) => {
@@ -54,14 +71,15 @@ export default function ActionPanel({ items }: ActionPanelProps) {
 
         return (
           <motion.div
-            key={i}
+            key={item.id}
             initial={{ opacity: 0, x: -12 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.35, delay: i * 0.06, ease: "easeOut" }}
             className="rounded-lg p-4 transition-all duration-200 hover:brightness-110"
             style={{
-              background: pConfig.bg,
-              border: `1px solid ${pConfig.border}`,
+              background: item.completed ? "rgba(0,230,118,0.04)" : pConfig.bg,
+              border: `1px solid ${item.completed ? "rgba(0,230,118,0.2)" : pConfig.border}`,
+              opacity: item.completed ? 0.65 : 1,
             }}
           >
             <div className="flex items-start gap-3">
@@ -87,22 +105,49 @@ export default function ActionPanel({ items }: ActionPanelProps) {
                   >
                     {categoryLabel[item.category]}
                   </span>
+                  {item.completed && (
+                    <span
+                      className="text-[10px] font-mono font-bold tracking-widest px-1.5 py-0.5 rounded flex items-center gap-1"
+                      style={{ color: "#00E676", background: "rgba(0,230,118,0.1)" }}
+                    >
+                      <CheckCircle2 size={9} /> DONE
+                    </span>
+                  )}
                 </div>
                 <h4
                   className="text-sm font-semibold mb-1 leading-snug"
-                  style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#E2E8F0" }}
+                  style={{
+                    fontFamily: "'Space Grotesk', sans-serif",
+                    color: item.completed ? "#475569" : "#E2E8F0",
+                    textDecoration: item.completed ? "line-through" : "none",
+                  }}
                 >
                   {item.title}
                 </h4>
                 <p className="text-xs leading-relaxed mb-2" style={{ color: "#64748B" }}>
                   {item.description}
                 </p>
-                <div
-                  className="text-xs font-medium px-2 py-1 rounded inline-flex items-center gap-1"
-                  style={{ color: "#00E676", background: "rgba(0, 230, 118, 0.08)", border: "1px solid rgba(0,230,118,0.15)" }}
-                >
-                  <TrendingUp size={10} />
-                  {item.estimatedImpact}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div
+                    className="text-xs font-medium px-2 py-1 rounded inline-flex items-center gap-1"
+                    style={{ color: "#00E676", background: "rgba(0, 230, 118, 0.08)", border: "1px solid rgba(0,230,118,0.15)" }}
+                  >
+                    <TrendingUp size={10} />
+                    {item.estimatedImpact}
+                  </div>
+                  {/* Toggle completed button */}
+                  <button
+                    onClick={() => toggleMutation.mutate({ id: item.id, completed: !item.completed })}
+                    disabled={toggleMutation.isPending}
+                    className="text-[10px] font-mono px-2 py-1 rounded transition-all hover:brightness-125"
+                    style={{
+                      color: item.completed ? "#64748B" : "#00D4FF",
+                      background: item.completed ? "rgba(100,116,139,0.08)" : "rgba(0,212,255,0.06)",
+                      border: `1px solid ${item.completed ? "rgba(100,116,139,0.15)" : "rgba(0,212,255,0.15)"}`,
+                    }}
+                  >
+                    {item.completed ? "↩ Undo" : "✓ Mark done"}
+                  </button>
                 </div>
               </div>
             </div>
