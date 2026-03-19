@@ -1,53 +1,22 @@
-/**
- * metaAdsFetcher.ts
- * Server-side helper that calls the Meta Marketing MCP server via the
- * manus-mcp-cli CLI tool and returns structured performance data.
- *
- * This runs on the Node.js server (not in the browser) so it has access
- * to the CLI tool available in the sandbox environment.
- */
+import { getDemoDailyPerformance, getDemoFetchedDataset } from "./demoData";
+import { ENV } from "./_core/env";
 
-import { execSync } from "child_process";
-import * as fs from "fs";
-
-const AD_ACCOUNT_ID = "act_77497873";
-
-// ── Date preset config ────────────────────────────────────────
 export const DATE_PRESETS = [
-  { preset: "last_30d",              label: "Last 30 Days",       isPartial: false },
-  { preset: "last_7d",               label: "Last 7 Days",        isPartial: false },
-  { preset: "this_week_mon_today",   label: "This Week",          isPartial: true  },
-  { preset: "today",                 label: "Today",              isPartial: true  },
-  { preset: "yesterday",             label: "Yesterday",          isPartial: false },
+  { preset: "last_30d", label: "Last 30 Days", isPartial: false },
+  { preset: "last_7d", label: "Last 7 Days", isPartial: false },
+  { preset: "this_week_mon_today", label: "This Week", isPartial: true },
+  { preset: "today", label: "Today", isPartial: true },
+  { preset: "yesterday", label: "Yesterday", isPartial: false },
 ] as const;
 
-export type DatePreset = typeof DATE_PRESETS[number]["preset"];
+export type DatePreset = (typeof DATE_PRESETS)[number]["preset"];
 
-// ── MCP call helper ───────────────────────────────────────────
-function callMcp(toolName: string, input: Record<string, unknown>): unknown {
-  const inputJson = JSON.stringify(input);
-  const result = execSync(
-    `manus-mcp-cli tool call ${toolName} --server meta-marketing --input '${inputJson.replace(/'/g, "'\\''")}'`,
-    { encoding: "utf8", timeout: 60_000 }
-  );
+export type MetaAccountProfile = {
+  id: string;
+  name: string;
+  currency: string;
+};
 
-  // manus-mcp-cli writes result to a file path shown in stdout
-  const match = result.match(/Tool call result saved to: (.+\.json)/);
-  if (match) {
-    const filePath = match[1].trim();
-    const fileContent = fs.readFileSync(filePath, "utf8");
-    return JSON.parse(fileContent);
-  }
-
-  // Fallback: try to parse stdout directly
-  try {
-    return JSON.parse(result);
-  } catch {
-    throw new Error(`MCP call failed: ${result}`);
-  }
-}
-
-// ── Types ─────────────────────────────────────────────────────
 export interface MetaInsightRow {
   campaign_id?: string;
   campaign_name?: string;
@@ -110,28 +79,68 @@ export interface FetchedSnapshot {
   }>;
 }
 
-// ── Helpers ───────────────────────────────────────────────────
-function parseLeads(row: MetaInsightRow): number {
-  const leadAction = row.actions?.find(
-    a => a.action_type === "lead" || a.action_type === "onsite_conversion.lead_grouped"
-  );
-  return leadAction ? parseInt(leadAction.value, 10) : 0;
+export interface DailyPerformancePoint {
+  date: string;
+  label: string;
+  amountSpent: number;
+  leads: number;
+  costPerLead: number | null;
 }
 
-function safeFloat(v: string | undefined): number {
-  if (!v) return 0;
-  const n = parseFloat(v);
-  return isNaN(n) ? 0 : n;
+type GraphPage<T> = {
+  data?: T[];
+  paging?: { next?: string };
+  error?: { message: string; code?: number; type?: string };
+};
+
+const DAY_LABEL_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  timeZone: "UTC",
+});
+
+const LEAD_ACTION_TYPES = new Set([
+  "lead",
+  "leadgen_grouped",
+  "onsite_conversion.lead_grouped",
+  "offsite_conversion.fb_pixel_lead",
+  "offsite_conversion.lead",
+  "omni_lead",
+  "onsite_web_lead",
+]);
+
+const INSIGHTS_FIELDS = [
+  "campaign_id",
+  "campaign_name",
+  "spend",
+  "impressions",
+  "reach",
+  "frequency",
+  "clicks",
+  "inline_link_clicks",
+  "ctr",
+  "inline_link_click_ctr",
+  "cpm",
+  "cpc",
+  "cost_per_inline_link_click",
+  "actions",
+  "date_start",
+  "date_stop",
+].join(",");
+
+function safeFloat(value: string | undefined) {
+  if (!value) return 0;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function safeInt(v: string | undefined): number {
-  if (!v) return 0;
-  const n = parseInt(v, 10);
-  return isNaN(n) ? 0 : n;
+function safeInt(value: string | undefined) {
+  if (!value) return 0;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
-// Derive a short display name from the full campaign name
-function toShortName(name: string): string {
+function toShortName(name: string) {
   return name
     .replace(/\[.*?\]/g, "")
     .replace(/\|.*$/, "")
@@ -140,64 +149,172 @@ function toShortName(name: string): string {
     .slice(0, 60);
 }
 
-// Infer objective from campaign name
-function inferObjective(name: string): string {
+function inferObjective(name: string) {
   const lower = name.toLowerCase();
+
   if (lower.includes("annuity")) return "Annuity";
   if (lower.includes("fegli") && lower.includes("trap")) return "FEGLI Trap";
-  if (lower.includes("fegli") && lower.includes("conversion")) return "FEGLI Conversion";
+  if (lower.includes("fegli") && lower.includes("conversion")) {
+    return "FEGLI Conversion";
+  }
   if (lower.includes("fegli")) return "FEGLI Trap";
   return "Other";
 }
 
-// ── Main fetch function ───────────────────────────────────────
+function parseLeads(row: MetaInsightRow) {
+  const leadAction = row.actions?.find(action =>
+    LEAD_ACTION_TYPES.has(action.action_type)
+  );
+
+  return leadAction ? safeInt(leadAction.value) : 0;
+}
+
+function normalizeAdAccountId(value: string) {
+  if (!value) return "";
+  return value.startsWith("act_") ? value : `act_${value}`;
+}
+
+function formatDayLabel(isoDate: string) {
+  return DAY_LABEL_FORMATTER.format(new Date(`${isoDate}T00:00:00Z`));
+}
+
+export function isMetaApiConfigured() {
+  return Boolean(ENV.metaAccessToken && ENV.metaAdAccountId);
+}
+
+function buildGraphUrl(pathOrUrl: string, params?: Record<string, string>) {
+  const url = pathOrUrl.startsWith("https://")
+    ? new URL(pathOrUrl)
+    : new URL(
+        `${ENV.metaGraphBaseUrl}/${pathOrUrl.replace(/^\/+/, "")}`
+      );
+
+  if (!url.searchParams.has("access_token")) {
+    url.searchParams.set("access_token", ENV.metaAccessToken);
+  }
+
+  Object.entries(params ?? {}).forEach(([key, value]) => {
+    url.searchParams.set(key, value);
+  });
+
+  return url;
+}
+
+async function fetchGraphJson<T>(
+  pathOrUrl: string,
+  params?: Record<string, string>
+): Promise<T> {
+  const url = buildGraphUrl(pathOrUrl, params);
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  const payload = (await response.json()) as GraphPage<unknown> | T;
+
+  if (!response.ok || (payload as GraphPage<unknown>).error) {
+    const error = (payload as GraphPage<unknown>).error;
+    const detail = error?.message ?? response.statusText;
+    throw new Error(`Meta Graph API request failed: ${detail}`);
+  }
+
+  return payload as T;
+}
+
+async function fetchAllPages<T>(
+  path: string,
+  params: Record<string, string>
+): Promise<T[]> {
+  const rows: T[] = [];
+  let nextPath: string | null = path;
+  let nextParams: Record<string, string> | undefined = params;
+
+  while (nextPath) {
+    const page: GraphPage<T> = await fetchGraphJson<GraphPage<T>>(
+      nextPath,
+      nextParams
+    );
+    rows.push(...(page.data ?? []));
+    nextPath = page.paging?.next ?? null;
+    nextParams = undefined;
+  }
+
+  return rows;
+}
+
+async function fetchAccountProfile(): Promise<MetaAccountProfile> {
+  const profile = await fetchGraphJson<{
+    id: string;
+    name?: string;
+    currency?: string;
+  }>(normalizeAdAccountId(ENV.metaAdAccountId), {
+    fields: "id,name,currency",
+  });
+
+  return {
+    id: profile.id,
+    name: profile.name ?? ENV.metaAccountName ?? "Meta Ad Account",
+    currency: profile.currency ?? "USD",
+  };
+}
+
+async function fetchInsightsForPreset(
+  preset: string,
+  level: "account" | "campaign"
+) {
+  return fetchAllPages<MetaInsightRow>(
+    `${normalizeAdAccountId(ENV.metaAdAccountId)}/insights`,
+    {
+      level,
+      date_preset: preset,
+      fields: INSIGHTS_FIELDS,
+      limit: level === "campaign" ? "250" : "50",
+    }
+  );
+}
+
+async function fetchDailyInsightsForPreset(preset: string) {
+  return fetchAllPages<MetaInsightRow>(
+    `${normalizeAdAccountId(ENV.metaAdAccountId)}/insights`,
+    {
+      level: "account",
+      date_preset: preset,
+      time_increment: "1",
+      fields: INSIGHTS_FIELDS,
+      limit: "90",
+    }
+  );
+}
+
 export async function fetchSnapshotForPreset(
   preset: string,
   label: string,
   isPartial: boolean
 ): Promise<FetchedSnapshot> {
-  // 1. Fetch account-level insights
-  const accountResult = callMcp("meta_marketing_get_insights", {
-    object_type: "ad_account",
-    object_id: AD_ACCOUNT_ID,
-    date_preset: preset,
-    level: "account",
-  }) as { result?: { data?: MetaInsightRow[]; paging?: { cursors?: { after?: string } } } };
+  const accountRows = await fetchInsightsForPreset(preset, "account");
+  const accountRow = accountRows[0];
 
-  const accountRows: MetaInsightRow[] = accountResult?.result?.data ?? [];
-  const acct = accountRows[0];
-
-  if (!acct) {
-    throw new Error(`No account data returned for preset: ${preset}`);
+  if (!accountRow) {
+    throw new Error(`No account data returned for preset ${preset}`);
   }
 
-  const acctLeads = parseLeads(acct);
-  const acctSpent = safeFloat(acct.spend);
-  const acctCostPerLead = acctLeads > 0 ? acctSpent / acctLeads : 0;
+  const accountLeads = parseLeads(accountRow);
+  const accountSpent = safeFloat(accountRow.spend);
 
-  // 2. Fetch campaign-level insights
-  const campaignResult = callMcp("meta_marketing_get_insights", {
-    object_type: "ad_account",
-    object_id: AD_ACCOUNT_ID,
-    date_preset: preset,
-    level: "campaign",
-  }) as { result?: { data?: MetaInsightRow[] } };
-
-  const campaignRows: MetaInsightRow[] = campaignResult?.result?.data ?? [];
-
-  const campaignData = campaignRows.map(row => {
+  const campaignRows = await fetchInsightsForPreset(preset, "campaign");
+  const campaigns = campaignRows.map(row => {
     const leads = parseLeads(row);
-    const spent = safeFloat(row.spend);
-    const cpl = leads > 0 ? spent / leads : null;
-    const cplStatus = cpl == null ? "moderate" : cpl <= 22.43 ? "excellent" : cpl <= 33.65 ? "moderate" : "poor";
+    const amountSpent = safeFloat(row.spend);
+    const costPerLead = leads > 0 ? amountSpent / leads : null;
 
     return {
       campaignId: row.campaign_id ?? "",
       campaignName: row.campaign_name ?? "",
       shortName: toShortName(row.campaign_name ?? ""),
       objective: inferObjective(row.campaign_name ?? ""),
-      status: cplStatus,
-      amountSpent: spent,
+      status: "moderate",
+      amountSpent,
       impressions: safeInt(row.impressions),
       reach: safeInt(row.reach),
       frequency: safeFloat(row.frequency),
@@ -209,44 +326,96 @@ export async function fetchSnapshotForPreset(
       cpcAll: safeFloat(row.cpc),
       cpcLink: safeFloat(row.cost_per_inline_link_click),
       leads,
-      costPerLead: cpl,
+      costPerLead:
+        costPerLead != null ? Number(costPerLead.toFixed(2)) : null,
     };
   });
 
   return {
     datePreset: preset,
     datePresetLabel: label,
-    dateRangeSince: acct.date_start,
-    dateRangeUntil: acct.date_stop,
+    dateRangeSince: accountRow.date_start,
+    dateRangeUntil: accountRow.date_stop,
     isPartial,
     account: {
-      amountSpent: acctSpent,
-      impressions: safeInt(acct.impressions),
-      reach: safeInt(acct.reach),
-      frequency: safeFloat(acct.frequency),
-      clicksAll: safeInt(acct.clicks),
-      linkClicks: safeInt(acct.inline_link_clicks),
-      ctrAll: safeFloat(acct.ctr),
-      ctrLink: safeFloat(acct.inline_link_click_ctr),
-      cpm: safeFloat(acct.cpm),
-      cpcAll: safeFloat(acct.cpc),
-      cpcLink: safeFloat(acct.cost_per_inline_link_click),
-      leads: acctLeads,
-      costPerLead: acctCostPerLead,
+      amountSpent: accountSpent,
+      impressions: safeInt(accountRow.impressions),
+      reach: safeInt(accountRow.reach),
+      frequency: safeFloat(accountRow.frequency),
+      clicksAll: safeInt(accountRow.clicks),
+      linkClicks: safeInt(accountRow.inline_link_clicks),
+      ctrAll: safeFloat(accountRow.ctr),
+      ctrLink: safeFloat(accountRow.inline_link_click_ctr),
+      cpm: safeFloat(accountRow.cpm),
+      cpcAll: safeFloat(accountRow.cpc),
+      cpcLink: safeFloat(accountRow.cost_per_inline_link_click),
+      leads: accountLeads,
+      costPerLead:
+        accountLeads > 0
+          ? Number((accountSpent / accountLeads).toFixed(2))
+          : 0,
     },
-    campaigns: campaignData,
+    campaigns,
   };
 }
 
-export async function fetchAllSnapshots(): Promise<FetchedSnapshot[]> {
-  const results: FetchedSnapshot[] = [];
-  for (const { preset, label, isPartial } of DATE_PRESETS) {
-    try {
-      const snapshot = await fetchSnapshotForPreset(preset, label, isPartial);
-      results.push(snapshot);
-    } catch (err) {
-      console.error(`[MetaAdsFetcher] Failed to fetch ${preset}:`, err);
-    }
+export async function fetchAllSnapshots(): Promise<{
+  account: MetaAccountProfile;
+  snapshots: FetchedSnapshot[];
+  sourceMode: "live" | "demo";
+}> {
+  if (!isMetaApiConfigured()) {
+    return getDemoFetchedDataset();
   }
-  return results;
+
+  const account = await fetchAccountProfile();
+  const snapshots: FetchedSnapshot[] = [];
+
+  for (const preset of DATE_PRESETS) {
+    const snapshot = await fetchSnapshotForPreset(
+      preset.preset,
+      preset.label,
+      preset.isPartial
+    );
+    snapshots.push(snapshot);
+  }
+
+  return {
+    account,
+    snapshots,
+    sourceMode: "live",
+  };
+}
+
+export async function fetchDailyPerformance(): Promise<{
+  days: DailyPerformancePoint[];
+  sourceMode: "live" | "demo";
+}> {
+  if (!isMetaApiConfigured()) {
+    return {
+      days: getDemoDailyPerformance(),
+      sourceMode: "demo",
+    };
+  }
+
+  const rows = await fetchDailyInsightsForPreset("last_30d");
+
+  return {
+    days: rows
+      .map(row => {
+        const amountSpent = safeFloat(row.spend);
+        const leads = parseLeads(row);
+
+        return {
+          date: row.date_start,
+          label: formatDayLabel(row.date_start),
+          amountSpent: Number(amountSpent.toFixed(2)),
+          leads,
+          costPerLead:
+            leads > 0 ? Number((amountSpent / leads).toFixed(2)) : null,
+        };
+      })
+      .sort((left, right) => left.date.localeCompare(right.date)),
+    sourceMode: "live",
+  };
 }

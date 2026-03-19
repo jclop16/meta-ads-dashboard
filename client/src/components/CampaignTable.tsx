@@ -2,13 +2,13 @@
 // CPL coloring is driven by the user-defined CplTargetContext threshold
 import { useState, Fragment } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Campaign } from "@/lib/data";
+import type { DashboardCampaign } from "@/lib/dashboardTypes";
 import StatusBadge from "./StatusBadge";
 import { useCplTarget } from "@/contexts/CplTargetContext";
 import { ChevronDown, ChevronUp, Info } from "lucide-react";
 
 interface CampaignTableProps {
-  campaigns: Campaign[];
+  campaigns: DashboardCampaign[];
 }
 
 function fmt(n: number, decimals = 2) {
@@ -22,7 +22,7 @@ function fmtCurrency(n: number) {
 export default function CampaignTable({ campaigns }: CampaignTableProps) {
   const { getStatus, getColor, cplTarget } = useCplTarget();
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<keyof Campaign>("amountSpent");
+  const [sortKey, setSortKey] = useState<keyof DashboardCampaign>("amountSpent");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   const sorted = [...campaigns].sort((a, b) => {
@@ -33,7 +33,7 @@ export default function CampaignTable({ campaigns }: CampaignTableProps) {
     return sortDir === "desc" ? bv - av : av - bv;
   });
 
-  function toggleSort(key: keyof Campaign) {
+  function toggleSort(key: keyof DashboardCampaign) {
     if (sortKey === key) {
       setSortDir(d => (d === "desc" ? "asc" : "desc"));
     } else {
@@ -42,7 +42,7 @@ export default function CampaignTable({ campaigns }: CampaignTableProps) {
     }
   }
 
-  function SortIcon({ k }: { k: keyof Campaign }) {
+  function SortIcon({ k }: { k: keyof DashboardCampaign }) {
     if (sortKey !== k) return <span className="opacity-20 text-xs">↕</span>;
     return sortDir === "desc" ? <ChevronDown size={12} /> : <ChevronUp size={12} />;
   }
@@ -72,14 +72,14 @@ export default function CampaignTable({ campaigns }: CampaignTableProps) {
             </th>
             {[
               { label: "Status", key: null },
-              { label: "Spent", key: "amountSpent" as keyof Campaign },
-              { label: "Impressions", key: "impressions" as keyof Campaign },
-              { label: "Leads", key: "leads" as keyof Campaign },
-              { label: `CPL (target: $${cplTarget.toFixed(2)})`, key: "costPerLead" as keyof Campaign },
-              { label: "CTR (all)", key: "ctrAll" as keyof Campaign },
-              { label: "CTR (link)", key: "ctrLink" as keyof Campaign },
-              { label: "CPM", key: "cpm" as keyof Campaign },
-              { label: "Freq", key: "frequency" as keyof Campaign },
+              { label: "Spent", key: "amountSpent" as keyof DashboardCampaign },
+              { label: "Impressions", key: "impressions" as keyof DashboardCampaign },
+              { label: "Leads", key: "leads" as keyof DashboardCampaign },
+              { label: `CPL (target: $${cplTarget.toFixed(2)})`, key: "costPerLead" as keyof DashboardCampaign },
+              { label: "CTR (all)", key: "ctrAll" as keyof DashboardCampaign },
+              { label: "CTR (link)", key: "ctrLink" as keyof DashboardCampaign },
+              { label: "CPM", key: "cpm" as keyof DashboardCampaign },
+              { label: "Freq", key: "frequency" as keyof DashboardCampaign },
             ].map(col => (
               <th
                 key={col.label}

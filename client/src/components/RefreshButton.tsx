@@ -15,15 +15,21 @@ export default function RefreshButton({ onRefreshComplete }: RefreshButtonProps)
   const refreshMutation = trpc.dashboard.refresh.useMutation({
     onSuccess: (data) => {
       // Invalidate all dashboard queries to reload with fresh data
+      utils.dashboard.metaState.invalidate();
       utils.dashboard.snapshots.invalidate();
+      utils.dashboard.snapshotDetail.invalidate();
       utils.dashboard.accountMetrics.invalidate();
       utils.dashboard.campaigns.invalidate();
+      utils.dashboard.actionItems.invalidate();
+      utils.dashboard.dailyPerformance.invalidate();
 
       const savedCount = data.saved.length;
       const failedCount = data.failed.length;
+      const sourceLabel =
+        data.sourceMode === "live" ? "Meta Ads" : "demo workspace data";
 
       if (failedCount === 0) {
-        toast.success(`Refreshed ${savedCount} date range${savedCount !== 1 ? "s" : ""} from Meta Ads`, {
+        toast.success(`Refreshed ${savedCount} date range${savedCount !== 1 ? "s" : ""} from ${sourceLabel}`, {
           description: data.saved.join(" · "),
           duration: 5000,
         });

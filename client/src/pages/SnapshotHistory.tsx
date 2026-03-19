@@ -1,5 +1,5 @@
 // SnapshotHistory — date range performance comparison across all stored snapshots
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -282,6 +282,12 @@ export default function SnapshotHistory() {
     { id: selectedId! },
     { enabled: selectedId != null }
   );
+
+  useEffect(() => {
+    if (selectedId == null && snapshots[0]?.id != null) {
+      setSelectedId(snapshots[0].id);
+    }
+  }, [selectedId, snapshots]);
 
   const activeId = selectedId ?? (snapshots[0]?.id ?? null);
   const activeSnap = snapshots.find(s => s.id === activeId) ?? null;

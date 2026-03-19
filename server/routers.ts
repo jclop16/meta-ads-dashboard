@@ -1,24 +1,35 @@
 import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
-import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import {
   getLatestAccountMetrics,
   getAllCampaigns,
   getAllActionItems,
+  getDailyPerformance,
   toggleActionItem,
   getSetting,
   upsertSetting,
   saveSnapshot,
   getAllSnapshots,
   getSnapshotWithCampaigns,
+  replaceDailyPerformance,
+  replaceCurrentDashboardData,
 } from "./db";
-import { fetchAllSnapshots, DATE_PRESETS } from "./metaAdsFetcher";
+import {
+  buildCampaignRecommendation,
+  DEFAULT_CPL_TARGET,
+  getCampaignStatus,
+} from "./dashboardLogic";
+import {
+  DATE_PRESETS,
+  fetchAllSnapshots,
+  fetchDailyPerformance,
+  isMetaApiConfigured,
+} from "./metaAdsFetcher";
+import { ENV } from "./_core/env";
 
 export const appRouter = router({
-  system: systemRouter,
-
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
@@ -30,6 +41,13 @@ export const appRouter = router({
 
   // ── Dashboard data ────────────────────────────────────────────
   dashboard: router({
+    metaState: publicProcedure.query(() => ({
+      sourceMode: isMetaApiConfigured() ? ("live" as const) : ("demo" as const),
+      apiConfigured: isMetaApiConfigured(),
+      adAccountId: ENV.metaAdAccountId || null,
+      apiVersion: ENV.metaApiVersion,
+    })),
+
     accountMetrics: publicProcedure.query(async () => {
       const metrics = await getLatestAccountMetrics();
       if (!metrics) return null;
@@ -46,10 +64,47 @@ export const appRouter = router({
       };
     }),
 
-    campaigns: publicProcedure.query(async () => {
+    campaigns: publicProcedure.query(async ({ ctx }) => {
       const rows = await getAllCampaigns();
+      const userId = ctx.user?.id ?? null;
+      const storedTarget = userId != null ? await getSetting("cplTarget", userId) : null;
+      const fallbackTarget = await getSetting("cplTarget", null);
+      const cplTarget =
+        storedTarget != null
+          ? Number.parseFloat(storedTarget)
+          : fallbackTarget != null
+            ? Number.parseFloat(fallbackTarget)
+            : DEFAULT_CPL_TARGET;
+
       return rows.map(c => ({
         ...c,
+        status: getCampaignStatus(
+          c.costPerLead != null ? parseFloat(c.costPerLead) : null,
+          cplTarget
+        ),
+        recommendation: buildCampaignRecommendation(
+          {
+            campaignId: c.id,
+            campaignName: c.name,
+            shortName: c.shortName,
+            objective: c.objective,
+            status: c.status,
+            amountSpent: parseFloat(c.amountSpent),
+            impressions: c.impressions,
+            reach: c.reach,
+            frequency: parseFloat(c.frequency),
+            clicksAll: c.clicksAll,
+            linkClicks: c.linkClicks,
+            ctrAll: parseFloat(c.ctrAll),
+            ctrLink: parseFloat(c.ctrLink),
+            cpm: parseFloat(c.cpm),
+            cpcAll: parseFloat(c.cpcAll),
+            cpcLink: parseFloat(c.cpcLink),
+            leads: c.leads,
+            costPerLead: c.costPerLead != null ? parseFloat(c.costPerLead) : null,
+          },
+          cplTarget
+        ),
         amountSpent: parseFloat(c.amountSpent),
         frequency: parseFloat(c.frequency),
         ctrAll: parseFloat(c.ctrAll),
@@ -65,6 +120,21 @@ export const appRouter = router({
       return getAllActionItems();
     }),
 
+    dailyPerformance: publicProcedure.query(async () => {
+      const rows = await getDailyPerformance();
+
+      return {
+        days: rows.map(row => ({
+          date: row.date,
+          label: row.label,
+          amountSpent: parseFloat(row.amountSpent),
+          leads: row.leads,
+          costPerLead:
+            row.costPerLead != null ? parseFloat(row.costPerLead) : null,
+        })),
+      };
+    }),
+
     toggleActionItem: publicProcedure
       .input(z.object({ id: z.number(), completed: z.boolean() }))
       .mutation(async ({ input }) => {
@@ -73,23 +143,49 @@ export const appRouter = router({
       }),
 
     // Refresh all date-range snapshots from Meta Ads API
-    refresh: publicProcedure.mutation(async () => {
-      const snapshots = await fetchAllSnapshots();
+    refresh: publicProcedure.mutation(async ({ ctx }) => {
+      const { account, snapshots, sourceMode } = await fetchAllSnapshots();
+      const dailyPerformance = await fetchDailyPerformance();
+      const userId = ctx.user?.id ?? null;
+      const storedTarget = userId != null ? await getSetting("cplTarget", userId) : null;
+      const fallbackTarget = await getSetting("cplTarget", null);
+      const cplTarget =
+        storedTarget != null
+          ? Number.parseFloat(storedTarget)
+          : fallbackTarget != null
+            ? Number.parseFloat(fallbackTarget)
+            : DEFAULT_CPL_TARGET;
       const saved: string[] = [];
       const failed: string[] = [];
-      for (const snap of snapshots) {
+
+      for (const snapshot of snapshots) {
         try {
-          await saveSnapshot(snap);
-          saved.push(snap.datePresetLabel);
+          await saveSnapshot(snapshot);
+          saved.push(snapshot.datePresetLabel);
         } catch (err) {
-          console.error(`[Refresh] Failed to save ${snap.datePresetLabel}:`, err);
-          failed.push(snap.datePresetLabel);
+          console.error(
+            `[Refresh] Failed to save ${snapshot.datePresetLabel}:`,
+            err
+          );
+          failed.push(snapshot.datePresetLabel);
         }
       }
+
+      const primarySnapshot =
+        snapshots.find(snapshot => snapshot.datePreset === "last_30d") ??
+        snapshots[0];
+
+      if (primarySnapshot) {
+        await replaceCurrentDashboardData(account, primarySnapshot, cplTarget);
+      }
+      await replaceDailyPerformance(dailyPerformance.days);
+
       return {
         success: true,
         saved,
         failed,
+        sourceMode,
+        accountName: account.name,
         fetchedAt: new Date(),
       };
     }),
@@ -152,7 +248,7 @@ export const appRouter = router({
       const userId = ctx.user?.id ?? null;
       let val = userId != null ? await getSetting("cplTarget", userId) : null;
       if (val == null) val = await getSetting("cplTarget", null);
-      return { cplTarget: val != null ? parseFloat(val) : 22.43 };
+      return { cplTarget: val != null ? parseFloat(val) : DEFAULT_CPL_TARGET };
     }),
 
     setCplTarget: publicProcedure

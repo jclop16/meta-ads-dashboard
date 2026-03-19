@@ -25,20 +25,7 @@ import CampaignTable from "@/components/CampaignTable";
 import CplTargetInput from "@/components/CplTargetInput";
 import RefreshButton from "@/components/RefreshButton";
 import { useCplTarget } from "@/contexts/CplTargetContext";
-import {
-  REPORT_DATE_RANGE, ACCOUNT_NAME,
-} from "@/lib/data";
-
-// ── Stable daily trend data (seeded, not random on each render) ─
-const dailyTrend = Array.from({ length: 30 }, (_, i) => {
-  const seed = Math.sin(i * 9301 + 49297) * 0.5 + 0.5;
-  const seed2 = Math.sin(i * 6971 + 1234) * 0.5 + 0.5;
-  const base = 440 + Math.sin(i / 3) * 60 + seed * 40;
-  const leads = Math.round(18 + Math.sin(i / 4) * 8 + seed2 * 6);
-  const day = 17 + i;
-  const label = day > 28 ? `Mar ${day - 28}` : `Feb ${day}`;
-  return { day: label, spent: parseFloat(base.toFixed(2)), leads };
-});
+import type { DailyPerformancePoint } from "@/lib/dashboardTypes";
 
 const DONUT_COLORS = ["#00D4FF", "#00E676", "#FF3B5C"];
 
@@ -66,14 +53,48 @@ function DarkTooltip({ active, payload, label }: any) {
   );
 }
 
+function summarizeDays(days: DailyPerformancePoint[]) {
+  const totals = days.reduce(
+    (acc, day) => {
+      acc.amountSpent += day.amountSpent;
+      acc.leads += day.leads;
+      return acc;
+    },
+    { amountSpent: 0, leads: 0 }
+  );
+
+  return {
+    ...totals,
+    costPerLead:
+      totals.leads > 0 ? Number((totals.amountSpent / totals.leads).toFixed(2)) : null,
+  };
+}
+
+function formatDelta(current: number, previous: number) {
+  if (previous === 0) {
+    return current === 0 ? "Flat vs prior 7d" : "No prior 7d baseline";
+  }
+
+  const delta = ((current - previous) / previous) * 100;
+  const direction = delta > 0 ? "+" : "";
+  return `${direction}${delta.toFixed(1)}% vs prior 7d`;
+}
+
 // ── Inner dashboard — has access to CplTargetContext ────────
 function DashboardContent() {
   const { cplTarget, getStatus, getColor } = useCplTarget();
 
   // Load data from database via tRPC
+  const { data: metaState } = trpc.dashboard.metaState.useQuery();
   const { data: metricsData } = trpc.dashboard.accountMetrics.useQuery();
   const { data: campaignsData } = trpc.dashboard.campaigns.useQuery();
   const { data: actionItemsData } = trpc.dashboard.actionItems.useQuery();
+  const { data: dailyPerformanceData } = trpc.dashboard.dailyPerformance.useQuery(
+    undefined,
+    {
+      staleTime: 5 * 60 * 1000,
+    }
+  );
 
   // Fall back to zeros while loading
   const totalLeads = metricsData?.leads ?? 0;
@@ -81,14 +102,48 @@ function DashboardContent() {
   const avgCPL = metricsData?.costPerLead ?? 0;
   const campaigns = campaignsData ?? [];
   const actionItems = actionItemsData ?? [];
+  const accountName = metricsData?.accountName ?? "Meta Ad Account";
+  const reportDateRange = metricsData?.reportDateRange ?? "No reporting window yet";
+  const dataSourceLabel =
+    metaState?.sourceMode === "live" ? "Live Meta Graph API" : "Demo Mode";
+  const dailyTrend = useMemo(
+    () =>
+      (dailyPerformanceData?.days ?? []).map(day => ({
+        day: day.label,
+        spent: day.amountSpent,
+        leads: day.leads,
+      })),
+    [dailyPerformanceData]
+  );
 
   // Compute spend by objective from live campaign data
   const spendByObjective = useMemo(() => {
-    const map: Record<string, number> = {};
+    const map: Record<
+      string,
+      { name: string; value: number; leads: number; campaigns: number }
+    > = {};
     for (const c of campaigns) {
-      map[c.objective] = (map[c.objective] ?? 0) + c.amountSpent;
+      if (!map[c.objective]) {
+        map[c.objective] = {
+          name: c.objective,
+          value: 0,
+          leads: 0,
+          campaigns: 0,
+        };
+      }
+      map[c.objective].value += c.amountSpent;
+      map[c.objective].leads += c.leads;
+      map[c.objective].campaigns += 1;
     }
-    return Object.entries(map).map(([name, value]) => ({ name, value }));
+    return Object.values(map)
+      .map(objective => ({
+        ...objective,
+        costPerLead:
+          objective.leads > 0
+            ? Number((objective.value / objective.leads).toFixed(2))
+            : null,
+      }))
+      .sort((left, right) => right.value - left.value);
   }, [campaigns]);
 
   // Dynamic counts based on current target
@@ -133,6 +188,15 @@ function DashboardContent() {
     [campaigns, cplTarget]
   );
 
+  const trailingSevenDaySummary = useMemo(
+    () => summarizeDays((dailyPerformanceData?.days ?? []).slice(-7)),
+    [dailyPerformanceData]
+  );
+  const priorSevenDaySummary = useMemo(
+    () => summarizeDays((dailyPerformanceData?.days ?? []).slice(-14, -7)),
+    [dailyPerformanceData]
+  );
+
   return (
     <div
       className="min-h-screen grid-bg"
@@ -161,7 +225,7 @@ function DashboardContent() {
               Meta Ads Dashboard
             </h1>
             <p className="text-[10px] mt-0.5 font-mono" style={{ color: "#475569" }}>
-              {ACCOUNT_NAME}
+              {accountName}
             </p>
           </div>
         </div>
@@ -181,7 +245,7 @@ function DashboardContent() {
             }}
           >
             <Clock size={11} />
-            {REPORT_DATE_RANGE}
+            {reportDateRange}
           </div>
           <a
             href="/history"
@@ -199,6 +263,37 @@ function DashboardContent() {
           <RefreshButton />
         </div>
       </header>
+
+      <div
+        className="px-4 sm:px-6 py-2 border-b"
+        style={{
+          borderColor: "rgba(255,255,255,0.05)",
+          background:
+            metaState?.sourceMode === "live"
+              ? "rgba(0,212,255,0.04)"
+              : "rgba(255,179,0,0.08)",
+        }}
+      >
+        <div className="max-w-[1440px] mx-auto flex flex-wrap items-center gap-2 text-[11px] font-mono">
+          <span
+            className="px-2 py-1 rounded-full"
+            style={{
+              color: metaState?.sourceMode === "live" ? "#00D4FF" : "#FFB300",
+              background:
+                metaState?.sourceMode === "live"
+                  ? "rgba(0,212,255,0.1)"
+                  : "rgba(255,179,0,0.12)",
+            }}
+          >
+            {dataSourceLabel}
+          </span>
+          <span style={{ color: "#64748B" }}>
+            {metaState?.sourceMode === "live"
+              ? `Connected to ${metaState.adAccountId ?? "your configured ad account"}`
+              : "Set META_ACCESS_TOKEN and META_AD_ACCOUNT_ID to switch from demo data to live Meta reporting."}
+          </span>
+        </div>
+      </div>
 
       {/* ── HERO BANNER ────────────────────────────────────── */}
       <div
@@ -220,7 +315,7 @@ function DashboardContent() {
             transition={{ duration: 0.5 }}
           >
             <p className="text-xs font-mono uppercase tracking-widest mb-2" style={{ color: "#00D4FF" }}>
-              Performance Review · Last 30 Days
+              Performance Review · {reportDateRange}
             </p>
             <h2
               className="text-3xl sm:text-4xl font-bold leading-tight mb-3"
@@ -366,12 +461,14 @@ function DashboardContent() {
           {/* Spend by Objective Donut */}
           <div className="glow-card rounded-lg p-5">
             <SectionLabel icon={<DollarSign size={13} />} label="Spend by Objective" />
-            <p className="text-xs mt-1 mb-2" style={{ color: "#475569" }}>Total: $14,647.37</p>
+            <p className="text-xs mt-1 mb-2" style={{ color: "#475569" }}>
+              Total: ${totalSpend.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+            </p>
             <ResponsiveContainer width="100%" height={200}>
               <PieChart>
                 <Pie data={spendByObjective} cx="50%" cy="50%" innerRadius={55} outerRadius={80} paddingAngle={3} dataKey="value">
                   {spendByObjective.map((_, i) => (
-                    <Cell key={i} fill={DONUT_COLORS[i]} fillOpacity={0.9} />
+                    <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} fillOpacity={0.9} />
                   ))}
                 </Pie>
                 <Tooltip
@@ -384,8 +481,17 @@ function DashboardContent() {
               {spendByObjective.map((d, i) => (
                 <div key={i} className="flex items-center justify-between text-xs font-mono">
                   <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full" style={{ background: DONUT_COLORS[i] }} />
-                    <span style={{ color: "#94A3B8" }}>{d.name}</span>
+                    <div
+                      className="w-2 h-2 rounded-full"
+                      style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }}
+                    />
+                    <div className="flex flex-col">
+                      <span style={{ color: "#94A3B8" }}>{d.name}</span>
+                      <span style={{ color: "#475569", fontSize: "10px" }}>
+                        {d.leads} leads · {d.campaigns} campaign{d.campaigns !== 1 ? "s" : ""}
+                        {d.costPerLead != null ? ` · $${d.costPerLead.toFixed(2)} CPL` : ""}
+                      </span>
+                    </div>
                   </div>
                   <span style={{ color: "#E2E8F0" }}>
                     ${d.value.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
@@ -421,8 +527,45 @@ function DashboardContent() {
           <div className="glow-card rounded-lg p-5">
             <SectionLabel icon={<RefreshCw size={13} />} label="Daily Spend & Lead Trend" />
             <p className="text-xs mt-1 mb-4" style={{ color: "#475569" }}>
-              Simulated 30-day trend based on account totals
+              Persisted 30-day account series from the latest refresh
             </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
+              <PulseCard
+                label="Last 7d Spend"
+                value={`$${trailingSevenDaySummary.amountSpent.toLocaleString("en-US", {
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 0,
+                })}`}
+                subValue={formatDelta(
+                  trailingSevenDaySummary.amountSpent,
+                  priorSevenDaySummary.amountSpent
+                )}
+                color="#00D4FF"
+              />
+              <PulseCard
+                label="Last 7d Leads"
+                value={trailingSevenDaySummary.leads.toLocaleString()}
+                subValue={formatDelta(
+                  trailingSevenDaySummary.leads,
+                  priorSevenDaySummary.leads
+                )}
+                color="#00E676"
+              />
+              <PulseCard
+                label="Last 7d CPL"
+                value={
+                  trailingSevenDaySummary.costPerLead != null
+                    ? `$${trailingSevenDaySummary.costPerLead.toFixed(2)}`
+                    : "No leads"
+                }
+                subValue={`Target: $${cplTarget.toFixed(2)}`}
+                color={
+                  trailingSevenDaySummary.costPerLead != null
+                    ? getColor(trailingSevenDaySummary.costPerLead)
+                    : "#94A3B8"
+                }
+              />
+            </div>
             <ResponsiveContainer width="100%" height={260}>
               <AreaChart data={dailyTrend} margin={{ left: 0, right: 16, top: 4, bottom: 4 }}>
                 <defs>
@@ -565,10 +708,11 @@ function DashboardContent() {
         <footer className="py-6 border-t" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
             <p className="text-xs font-mono" style={{ color: "#334155" }}>
-              Data source: Meta Ads API · Account: Legacy Empowerment Group (act_77497873)
+              Data source: {dataSourceLabel}
+              {metaState?.adAccountId ? ` · Account: ${metaState.adAccountId}` : ""}
             </p>
             <p className="text-xs font-mono" style={{ color: "#334155" }}>
-              ⚠ Partial data — {REPORT_DATE_RANGE} includes today and is subject to change
+              Reporting window: {reportDateRange}
             </p>
           </div>
         </footer>
@@ -613,6 +757,38 @@ function Stat({ label, value, color }: { label: string; value: string; color: st
       <span className="text-xs font-mono font-semibold" style={{ color }}>
         {value}
       </span>
+    </div>
+  );
+}
+
+function PulseCard({
+  label,
+  value,
+  subValue,
+  color,
+}: {
+  label: string;
+  value: string;
+  subValue: string;
+  color: string;
+}) {
+  return (
+    <div
+      className="rounded-md p-3"
+      style={{
+        background: "rgba(255,255,255,0.03)",
+        border: "1px solid rgba(255,255,255,0.05)",
+      }}
+    >
+      <div className="text-[9px] font-mono uppercase tracking-widest" style={{ color: "#475569" }}>
+        {label}
+      </div>
+      <div className="text-base font-semibold mt-1" style={{ color, fontFamily: "'Space Grotesk', sans-serif" }}>
+        {value}
+      </div>
+      <div className="text-[10px] font-mono mt-1" style={{ color: "#64748B" }}>
+        {subValue}
+      </div>
     </div>
   );
 }

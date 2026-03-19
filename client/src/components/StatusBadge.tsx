@@ -1,6 +1,6 @@
 // Design: Dark terminal — pill-shaped performance status badges
 // Status is driven dynamically by CplTargetContext throughout the dashboard
-import { PerformanceStatus } from "@/lib/data";
+import type { PerformanceStatus } from "@/lib/dashboardTypes";
 
 interface StatusBadgeProps {
   status: PerformanceStatus;

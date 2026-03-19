@@ -8,7 +8,14 @@ const connection = await mysql.createConnection(process.env.DATABASE_URL);
 const db = drizzle(connection);
 
 // Dynamically import schema after drizzle is ready
-const { accountMetrics: accountMetricsTable, campaigns: campaignsTable, actionItems: actionItemsTable, userSettings: userSettingsTable } = await import("./drizzle/schema.ts");
+const {
+  accountMetrics: accountMetricsTable,
+  campaigns: campaignsTable,
+  actionItems: actionItemsTable,
+  dailyPerformance: dailyPerformanceTable,
+  userSettings: userSettingsTable,
+} = await import("./drizzle/schema.ts");
+const { getDemoDailyPerformance } = await import("./server/demoData.ts");
 
 // ── Account Metrics ──────────────────────────────────────────
 await db.insert(accountMetricsTable).values({
@@ -74,6 +81,19 @@ if (settingExists.length === 0) {
 } else {
   console.log("  CPL target setting already exists, skipping");
 }
+
+// ── Daily performance series ────────────────────────────────
+await db.delete(dailyPerformanceTable);
+await db.insert(dailyPerformanceTable).values(
+  getDemoDailyPerformance().map(day => ({
+    date: day.date,
+    label: day.label,
+    amountSpent: day.amountSpent.toFixed(2),
+    leads: day.leads,
+    costPerLead: day.costPerLead != null ? day.costPerLead.toFixed(2) : null,
+  }))
+);
+console.log("✓ daily_performance seeded");
 
 await connection.end();
 console.log("\n✅ Database seeded successfully!");

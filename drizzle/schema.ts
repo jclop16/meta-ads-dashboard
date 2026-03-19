@@ -64,7 +64,7 @@ export const campaigns = mysqlTable("campaigns", {
   id: varchar("id", { length: 32 }).primaryKey(),
   name: text("name").notNull(),
   shortName: varchar("shortName", { length: 128 }).notNull(),
-  objective: mysqlEnum("objective", ["FEGLI Trap", "Annuity", "FEGLI Conversion"]).notNull(),
+  objective: mysqlEnum("objective", ["FEGLI Trap", "Annuity", "FEGLI Conversion", "Other"]).notNull(),
   amountSpent: decimal("amountSpent", { precision: 12, scale: 2 }).notNull(),
   impressions: int("impressions").notNull(),
   reach: int("reach").notNull(),
@@ -100,6 +100,19 @@ export const actionItems = mysqlTable("action_items", {
 });
 
 export type ActionItem = typeof actionItems.$inferSelect;
+
+// ── Stored daily account series for the active reporting window ──
+export const dailyPerformance = mysqlTable("daily_performance", {
+  date: varchar("date", { length: 16 }).primaryKey(),
+  label: varchar("label", { length: 32 }).notNull(),
+  amountSpent: decimal("amountSpent", { precision: 12, scale: 2 }).notNull(),
+  leads: int("leads").notNull(),
+  costPerLead: decimal("costPerLead", { precision: 8, scale: 2 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type DailyPerformance = typeof dailyPerformance.$inferSelect;
 
 // ── Per-user dashboard settings (CPL target, etc.) ──────────
 export const userSettings = mysqlTable("user_settings", {

@@ -1,12 +1,15 @@
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { CplTargetProvider } from "./contexts/CplTargetContext";
-import Home from "./pages/Home";
-import SnapshotHistory from "./pages/SnapshotHistory";
+
+const Home = lazy(() => import("./pages/Home"));
+const SnapshotHistory = lazy(() => import("./pages/SnapshotHistory"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
@@ -29,7 +32,18 @@ export default function App() {
         <CplTargetProvider>
           <TooltipProvider>
             <Toaster />
-            <Router />
+            <Suspense
+              fallback={
+                <div
+                  className="min-h-screen flex items-center justify-center text-sm font-mono"
+                  style={{ background: "#0D0F14", color: "#64748B" }}
+                >
+                  Loading dashboard…
+                </div>
+              }
+            >
+              <Router />
+            </Suspense>
           </TooltipProvider>
         </CplTargetProvider>
       </ThemeProvider>
