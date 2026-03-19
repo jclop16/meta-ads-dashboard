@@ -1,5 +1,5 @@
 // Design: Dark terminal — dense data table with color-coded performance rows
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Campaign } from "@/lib/data";
 import StatusBadge from "./StatusBadge";
@@ -98,9 +98,8 @@ export default function CampaignTable({ campaigns }: CampaignTableProps) {
         </thead>
         <tbody>
           {sorted.map((c, i) => (
-            <>
+            <Fragment key={c.id}>
               <motion.tr
-                key={c.id}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: i * 0.04 }}
@@ -207,7 +206,7 @@ export default function CampaignTable({ campaigns }: CampaignTableProps) {
                   </motion.tr>
                 )}
               </AnimatePresence>
-            </>
+            </Fragment>
           ))}
         </tbody>
       </table>
