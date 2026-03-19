@@ -15,6 +15,13 @@
       "when": 1773932335245,
       "tag": "0001_tiny_xorn",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1773942198390,
+      "tag": "0002_cheerful_wilson_fisk",
+      "breakpoints": true
     }
   ]
 }

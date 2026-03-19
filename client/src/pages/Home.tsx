@@ -23,6 +23,7 @@ import StatusBadge from "@/components/StatusBadge";
 import ActionPanel from "@/components/ActionPanel";
 import CampaignTable from "@/components/CampaignTable";
 import CplTargetInput from "@/components/CplTargetInput";
+import RefreshButton from "@/components/RefreshButton";
 import { useCplTarget } from "@/contexts/CplTargetContext";
 import {
   REPORT_DATE_RANGE, ACCOUNT_NAME,
@@ -170,7 +171,7 @@ function DashboardContent() {
           <CplTargetInput />
         </div>
 
-        <div className="flex items-center gap-3 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
           <div
             className="hidden sm:flex items-center gap-1.5 text-xs font-mono px-3 py-1.5 rounded-full"
             style={{
@@ -182,17 +183,20 @@ function DashboardContent() {
             <Clock size={11} />
             {REPORT_DATE_RANGE}
           </div>
-          <div
-            className="flex items-center gap-1.5 text-[10px] font-mono px-2 py-1 rounded-full"
+          <a
+            href="/history"
+            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors hover:brightness-125"
             style={{
-              background: "rgba(255,179,0,0.1)",
-              border: "1px solid rgba(255,179,0,0.2)",
-              color: "#FFB300",
+              fontFamily: "'Space Grotesk', sans-serif",
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              color: "#94A3B8",
             }}
           >
-            <AlertTriangle size={10} />
-            Partial data
-          </div>
+            <BarChart2 size={12} />
+            History
+          </a>
+          <RefreshButton />
         </div>
       </header>
 

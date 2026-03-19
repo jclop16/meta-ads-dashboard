@@ -112,3 +112,58 @@ export const userSettings = mysqlTable("user_settings", {
 });
 
 export type UserSetting = typeof userSettings.$inferSelect;
+
+// ── Performance snapshots (one row per date-range fetch) ─────────
+export const performanceSnapshots = mysqlTable("performance_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  datePreset: varchar("datePreset", { length: 64 }).notNull(),
+  datePresetLabel: varchar("datePresetLabel", { length: 128 }).notNull(),
+  dateRangeSince: varchar("dateRangeSince", { length: 16 }).notNull(),
+  dateRangeUntil: varchar("dateRangeUntil", { length: 16 }).notNull(),
+  isPartial: boolean("isPartial").default(false).notNull(),
+  // Account-level aggregates for this snapshot
+  amountSpent: decimal("amountSpent", { precision: 12, scale: 2 }).notNull(),
+  impressions: int("impressions").notNull(),
+  reach: int("reach").notNull(),
+  frequency: decimal("frequency", { precision: 6, scale: 2 }).notNull(),
+  clicksAll: int("clicksAll").notNull(),
+  linkClicks: int("linkClicks").notNull(),
+  ctrAll: decimal("ctrAll", { precision: 6, scale: 4 }).notNull(),
+  ctrLink: decimal("ctrLink", { precision: 6, scale: 4 }).notNull(),
+  cpm: decimal("cpm", { precision: 8, scale: 2 }).notNull(),
+  cpcAll: decimal("cpcAll", { precision: 8, scale: 4 }).notNull(),
+  cpcLink: decimal("cpcLink", { precision: 8, scale: 4 }).notNull(),
+  leads: int("leads").notNull(),
+  costPerLead: decimal("costPerLead", { precision: 8, scale: 2 }).notNull(),
+  fetchedAt: timestamp("fetchedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type PerformanceSnapshot = typeof performanceSnapshots.$inferSelect;
+
+// ── Per-campaign data within a snapshot ───────────────────────
+export const snapshotCampaigns = mysqlTable("snapshot_campaigns", {
+  id: int("id").autoincrement().primaryKey(),
+  snapshotId: int("snapshotId").notNull(),
+  campaignId: varchar("campaignId", { length: 32 }).notNull(),
+  campaignName: text("campaignName").notNull(),
+  shortName: varchar("shortName", { length: 128 }).notNull(),
+  objective: varchar("objective", { length: 64 }).notNull(),
+  status: varchar("status", { length: 32 }).notNull(),
+  amountSpent: decimal("amountSpent", { precision: 12, scale: 2 }).notNull(),
+  impressions: int("impressions").notNull(),
+  reach: int("reach").notNull(),
+  frequency: decimal("frequency", { precision: 6, scale: 2 }).notNull(),
+  clicksAll: int("clicksAll").notNull(),
+  linkClicks: int("linkClicks").notNull(),
+  ctrAll: decimal("ctrAll", { precision: 6, scale: 4 }).notNull(),
+  ctrLink: decimal("ctrLink", { precision: 6, scale: 4 }).notNull(),
+  cpm: decimal("cpm", { precision: 8, scale: 2 }).notNull(),
+  cpcAll: decimal("cpcAll", { precision: 8, scale: 4 }).notNull(),
+  cpcLink: decimal("cpcLink", { precision: 8, scale: 4 }).notNull(),
+  leads: int("leads").notNull(),
+  costPerLead: decimal("costPerLead", { precision: 8, scale: 2 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type SnapshotCampaign = typeof snapshotCampaigns.$inferSelect;
