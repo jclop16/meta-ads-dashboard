@@ -4,6 +4,7 @@ import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { CplTargetProvider } from "./contexts/CplTargetContext";
 import Home from "./pages/Home";
 
 function Router() {
@@ -16,17 +17,20 @@ function Router() {
   );
 }
 
-function App() {
+export default function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider defaultTheme="dark">
-        <TooltipProvider>
-          <Toaster />
-          <Router />
-        </TooltipProvider>
+      <ThemeProvider
+        defaultTheme="dark"
+        // switchable
+      >
+        <CplTargetProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Router />
+          </TooltipProvider>
+        </CplTargetProvider>
       </ThemeProvider>
     </ErrorBoundary>
   );
 }
-
-export default App;

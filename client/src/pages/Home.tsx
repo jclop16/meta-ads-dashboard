@@ -22,7 +22,7 @@ import StatusBadge from "@/components/StatusBadge";
 import ActionPanel from "@/components/ActionPanel";
 import CampaignTable from "@/components/CampaignTable";
 import CplTargetInput from "@/components/CplTargetInput";
-import { CplTargetProvider, useCplTarget } from "@/contexts/CplTargetContext";
+import { useCplTarget } from "@/contexts/CplTargetContext";
 import {
   accountMetrics, campaigns, actionItems, spendByObjective,
   REPORT_DATE_RANGE, ACCOUNT_NAME,
@@ -556,13 +556,8 @@ function DashboardContent() {
   );
 }
 
-// ── Root export — wraps everything in the CPL target provider ─
 export default function Home() {
-  return (
-    <CplTargetProvider>
-      <DashboardContent />
-    </CplTargetProvider>
-  );
+  return <DashboardContent />;
 }
 
 // ── Helper Components ───────────────────────────────────────
