@@ -15,6 +15,7 @@ export default function RefreshButton({ onRefreshComplete }: RefreshButtonProps)
     onSuccess: (data) => {
       // Invalidate all dashboard queries to reload with fresh data
       utils.dashboard.metaState.invalidate();
+      utils.dashboard.metaConnection.invalidate();
       utils.dashboard.refreshStatus.invalidate();
       utils.dashboard.snapshots.invalidate();
       utils.dashboard.snapshotDetail.invalidate();
@@ -44,6 +45,7 @@ export default function RefreshButton({ onRefreshComplete }: RefreshButtonProps)
     },
     onError: (err) => {
       utils.dashboard.metaState.invalidate();
+      utils.dashboard.metaConnection.invalidate();
       utils.dashboard.refreshStatus.invalidate();
       utils.dashboard.snapshots.invalidate();
       utils.dashboard.snapshotDetail.invalidate();

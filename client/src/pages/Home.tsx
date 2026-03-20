@@ -104,6 +104,12 @@ function DashboardContent() {
 
   // Load data from database via tRPC
   const { data: metaState } = trpc.dashboard.metaState.useQuery();
+  const { data: metaConnectionData, isLoading: isMetaConnectionLoading } =
+    trpc.dashboard.metaConnection.useQuery(undefined, {
+      enabled: metaState?.sourceMode === "live",
+      staleTime: 5 * 60 * 1000,
+      refetchInterval: 5 * 60 * 1000,
+    });
   const { data: refreshStatusData } = trpc.dashboard.refreshStatus.useQuery(
     undefined,
     {
@@ -318,11 +324,39 @@ function DashboardContent() {
           >
             {dataSourceLabel}
           </span>
+          {metaState?.sourceMode === "live" ? (
+            <span
+              className="px-2 py-1 rounded-full"
+              style={{
+                color: isMetaConnectionLoading
+                  ? "#FFB300"
+                  : metaConnectionData?.connected
+                    ? "#00E676"
+                    : "#FF3B5C",
+                background: isMetaConnectionLoading
+                  ? "rgba(255,179,0,0.12)"
+                  : metaConnectionData?.connected
+                    ? "rgba(0,230,118,0.12)"
+                    : "rgba(255,59,92,0.12)",
+              }}
+            >
+              {isMetaConnectionLoading
+                ? "Testing Meta connection…"
+                : metaConnectionData?.connected
+                  ? "Connection verified"
+                  : "Connection failed"}
+            </span>
+          ) : null}
           <span style={{ color: "#64748B" }}>
             {metaState?.sourceMode === "live"
               ? `Connected to ${metaState.adAccountId ?? "your configured ad account"}`
               : "Set META_ACCESS_TOKEN and META_AD_ACCOUNT_ID to switch from demo data to live Meta reporting."}
           </span>
+          {metaState?.sourceMode === "live" && metaConnectionData?.connected ? (
+            <span style={{ color: "#475569" }}>
+              Verified account: {metaConnectionData.account?.name ?? metaConnectionData.adAccountId}
+            </span>
+          ) : null}
           <span style={{ color: "#475569" }}>
             Last success: {lastSuccessfulRefreshLabel}
           </span>
@@ -403,6 +437,44 @@ function DashboardContent() {
 
       {/* ── MAIN CONTENT ───────────────────────────────────── */}
       <main className="px-4 sm:px-6 py-6 space-y-8 max-w-[1440px] mx-auto">
+        {metaState?.sourceMode === "live" &&
+        metaConnectionData &&
+        !metaConnectionData.connected ? (
+          <section
+            className="rounded-lg border px-4 py-3 flex flex-wrap items-start gap-3"
+            style={{
+              background: "rgba(255,179,0,0.08)",
+              borderColor: "rgba(255,179,0,0.22)",
+            }}
+          >
+            <AlertTriangle size={16} style={{ color: "#FFB300", marginTop: 2 }} />
+            <div className="space-y-1">
+              <p
+                className="text-sm font-semibold"
+                style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#FDE68A" }}
+              >
+                Meta Graph connection check failed
+              </p>
+              <p className="text-xs font-mono" style={{ color: "#E2E8F0" }}>
+                {metaConnectionData.errorMessage ?? "Unable to validate Meta credentials"}
+              </p>
+              <p className="text-[11px] font-mono" style={{ color: "#94A3B8" }}>
+                Confirm the token has <span style={{ color: "#E2E8F0" }}>ads_read</span> access
+                and that ad account{" "}
+                <span style={{ color: "#E2E8F0" }}>
+                  {metaConnectionData.adAccountId ?? metaState.adAccountId ?? "unknown"}
+                </span>{" "}
+                is shared to that token.
+              </p>
+              {metaConnectionData.fbtraceId ? (
+                <p className="text-[11px] font-mono" style={{ color: "#94A3B8" }}>
+                  fbtrace_id: {metaConnectionData.fbtraceId}
+                </p>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
+
         {latestRefreshStatus === "failed" ? (
           <section
             className="rounded-lg border px-4 py-3 flex flex-wrap items-start gap-3"

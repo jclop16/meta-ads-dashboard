@@ -87,10 +87,37 @@ export interface DailyPerformancePoint {
   costPerLead: number | null;
 }
 
+export interface MetaConnectionStatus {
+  configured: boolean;
+  connected: boolean;
+  sourceMode: "live" | "demo";
+  apiVersion: string;
+  adAccountId: string | null;
+  checkedAt: Date;
+  account: MetaAccountProfile | null;
+  sampleDateStart: string | null;
+  sampleDateStop: string | null;
+  errorMessage: string | null;
+  errorCode: number | null;
+  errorType: string | null;
+  errorSubcode: number | null;
+  fbtraceId: string | null;
+}
+
+type GraphApiErrorPayload = {
+  message: string;
+  code?: number;
+  type?: string;
+  error_subcode?: number;
+  fbtrace_id?: string;
+  error_user_title?: string;
+  error_user_msg?: string;
+};
+
 type GraphPage<T> = {
   data?: T[];
   paging?: { next?: string };
-  error?: { message: string; code?: number; type?: string };
+  error?: GraphApiErrorPayload;
 };
 
 const DAY_LABEL_FORMATTER = new Intl.DateTimeFormat("en-US", {
@@ -98,6 +125,7 @@ const DAY_LABEL_FORMATTER = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
   timeZone: "UTC",
 });
+const META_REQUEST_TIMEOUT_MS = 15000;
 
 const LEAD_ACTION_TYPES = new Set([
   "lead",
@@ -182,6 +210,34 @@ export function isMetaApiConfigured() {
   return Boolean(ENV.metaAccessToken && ENV.metaAdAccountId);
 }
 
+export class MetaGraphApiError extends Error {
+  readonly status: number;
+  readonly code: number | null;
+  readonly type: string | null;
+  readonly subcode: number | null;
+  readonly fbtraceId: string | null;
+  readonly requestPath: string;
+
+  constructor(input: {
+    message: string;
+    status: number;
+    code?: number;
+    type?: string;
+    subcode?: number;
+    fbtraceId?: string;
+    requestPath: string;
+  }) {
+    super(input.message);
+    this.name = "MetaGraphApiError";
+    this.status = input.status;
+    this.code = input.code ?? null;
+    this.type = input.type ?? null;
+    this.subcode = input.subcode ?? null;
+    this.fbtraceId = input.fbtraceId ?? null;
+    this.requestPath = input.requestPath;
+  }
+}
+
 function buildGraphUrl(pathOrUrl: string, params?: Record<string, string>) {
   const url = pathOrUrl.startsWith("https://")
     ? new URL(pathOrUrl)
@@ -200,26 +256,123 @@ function buildGraphUrl(pathOrUrl: string, params?: Record<string, string>) {
   return url;
 }
 
+function buildMetaGraphApiError(
+  requestPath: string,
+  status: number,
+  payload: GraphApiErrorPayload | null,
+  responseBodyPreview?: string
+) {
+  const detailParts = [
+    payload?.message,
+    payload?.error_user_title,
+    payload?.error_user_msg,
+    responseBodyPreview,
+  ].filter(Boolean);
+  const metadataParts = [
+    status ? `status=${status}` : null,
+    payload?.code != null ? `code=${payload.code}` : null,
+    payload?.type ? `type=${payload.type}` : null,
+    payload?.error_subcode != null ? `subcode=${payload.error_subcode}` : null,
+    payload?.fbtrace_id ? `fbtrace_id=${payload.fbtrace_id}` : null,
+  ].filter(Boolean);
+
+  return new MetaGraphApiError({
+    message: `Meta Graph API request failed for ${requestPath}: ${detailParts.join(" | ") || "Unknown error"}${metadataParts.length ? ` [${metadataParts.join(", ")}]` : ""}`,
+    status,
+    code: payload?.code,
+    type: payload?.type,
+    subcode: payload?.error_subcode,
+    fbtraceId: payload?.fbtrace_id,
+    requestPath,
+  });
+}
+
+function getMetaErrorDetails(error: unknown) {
+  if (error instanceof MetaGraphApiError) {
+    return {
+      errorMessage: error.message,
+      errorCode: error.code,
+      errorType: error.type,
+      errorSubcode: error.subcode,
+      fbtraceId: error.fbtraceId,
+    };
+  }
+
+  return {
+    errorMessage:
+      error instanceof Error ? error.message : "Unknown Meta connection error",
+    errorCode: null,
+    errorType: null,
+    errorSubcode: null,
+    fbtraceId: null,
+  };
+}
+
 async function fetchGraphJson<T>(
   pathOrUrl: string,
   params?: Record<string, string>
 ): Promise<T> {
   const url = buildGraphUrl(pathOrUrl, params);
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-    },
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), META_REQUEST_TIMEOUT_MS);
+  let response: Response;
 
-  const payload = (await response.json()) as GraphPage<unknown> | T;
+  try {
+    response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+      },
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(
+        `Meta Graph API request timed out after ${META_REQUEST_TIMEOUT_MS}ms for ${url.pathname}`
+      );
+    }
 
-  if (!response.ok || (payload as GraphPage<unknown>).error) {
-    const error = (payload as GraphPage<unknown>).error;
-    const detail = error?.message ?? response.statusText;
-    throw new Error(`Meta Graph API request failed: ${detail}`);
+    const detail =
+      error instanceof Error ? error.message : "Unknown network error";
+    throw new Error(
+      `Meta Graph API network request failed for ${url.pathname}: ${detail}`
+    );
+  } finally {
+    clearTimeout(timeoutId);
   }
 
-  return payload as T;
+  const rawBody = await response.text();
+  let payload: GraphPage<unknown> | T | null = null;
+
+  if (rawBody) {
+    try {
+      payload = JSON.parse(rawBody) as GraphPage<unknown> | T;
+    } catch {
+      if (!response.ok) {
+        throw buildMetaGraphApiError(
+          url.pathname,
+          response.status,
+          null,
+          rawBody.slice(0, 280)
+        );
+      }
+
+      throw new Error(
+        `Meta Graph API returned a non-JSON response for ${url.pathname}`
+      );
+    }
+  }
+
+  if (!response.ok || (payload as GraphPage<unknown> | null)?.error) {
+    const error = (payload as GraphPage<unknown> | null)?.error ?? null;
+    throw buildMetaGraphApiError(
+      url.pathname,
+      response.status,
+      error,
+      !error && rawBody ? rawBody.slice(0, 280) : undefined
+    );
+  }
+
+  return (payload ?? {}) as T;
 }
 
 async function fetchAllPages<T>(
@@ -418,4 +571,73 @@ export async function fetchDailyPerformance(): Promise<{
       .sort((left, right) => left.date.localeCompare(right.date)),
     sourceMode: "live",
   };
+}
+
+export async function getMetaConnectionStatus(): Promise<MetaConnectionStatus> {
+  const checkedAt = new Date();
+
+  if (!isMetaApiConfigured()) {
+    return {
+      configured: false,
+      connected: false,
+      sourceMode: "demo",
+      apiVersion: ENV.metaApiVersion,
+      adAccountId: null,
+      checkedAt,
+      account: null,
+      sampleDateStart: null,
+      sampleDateStop: null,
+      errorMessage: "META_ACCESS_TOKEN and META_AD_ACCOUNT_ID are not configured",
+      errorCode: null,
+      errorType: null,
+      errorSubcode: null,
+      fbtraceId: null,
+    };
+  }
+
+  try {
+    const account = await fetchAccountProfile();
+    const sample = await fetchGraphJson<GraphPage<MetaInsightRow>>(
+      `${normalizeAdAccountId(ENV.metaAdAccountId)}/insights`,
+      {
+        level: "account",
+        date_preset: "last_7d",
+        fields: "spend,impressions,clicks,date_start,date_stop",
+        limit: "1",
+      }
+    );
+    const sampleRow = sample.data?.[0] ?? null;
+
+    return {
+      configured: true,
+      connected: true,
+      sourceMode: "live",
+      apiVersion: ENV.metaApiVersion,
+      adAccountId: account.id,
+      checkedAt,
+      account,
+      sampleDateStart: sampleRow?.date_start ?? null,
+      sampleDateStop: sampleRow?.date_stop ?? null,
+      errorMessage: null,
+      errorCode: null,
+      errorType: null,
+      errorSubcode: null,
+      fbtraceId: null,
+    };
+  } catch (error) {
+    const details = getMetaErrorDetails(error);
+
+    return {
+      configured: true,
+      connected: false,
+      sourceMode: "live",
+      apiVersion: ENV.metaApiVersion,
+      adAccountId: ENV.metaAdAccountId || null,
+      checkedAt,
+      account: null,
+      sampleDateStart: null,
+      sampleDateStop: null,
+      ...details,
+    };
+  }
 }

@@ -40,8 +40,6 @@ Still not in scope yet:
 4. Start the app with `npm run dev`.
 5. Open `http://localhost:3000`.
 
-If port `3000` is busy, the server will pick the next available port and print it in the terminal.
-
 ## Environment
 
 - `DATABASE_URL`
@@ -83,6 +81,18 @@ Any successful refresh will:
 - Write a `refresh_runs` audit record for health checks and ops visibility
 
 If a refresh partially saves data but any preset fails, the run is marked as failed and the UI surfaces the error state.
+
+### Testing stage
+
+Before treating the environment as production-ready, use this as a testing checklist:
+
+1. Set `META_ACCESS_TOKEN` and `META_AD_ACCOUNT_ID`.
+2. Load the dashboard and confirm the header shows `Connection verified`.
+3. If the header shows `Connection failed`, use the surfaced Meta error message and `fbtrace_id` to debug the token or account access.
+4. Trigger `Refresh from Meta Ads`.
+5. Confirm the dashboard exits demo mode, shows a successful refresh timestamp, and loads account metrics plus campaign rows.
+
+For the token, ensure the connected Meta user or system user has access to the ad account and the token includes at least `ads_read`.
 
 ### CPL target
 

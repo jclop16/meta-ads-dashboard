@@ -22,6 +22,7 @@ import {
 } from "./dashboardLogic";
 import {
   DATE_PRESETS,
+  getMetaConnectionStatus,
   isMetaApiConfigured,
 } from "./metaAdsFetcher";
 import { ENV } from "./_core/env";
@@ -56,6 +57,8 @@ export const appRouter = router({
       adAccountId: ENV.metaAdAccountId || null,
       apiVersion: ENV.metaApiVersion,
     })),
+
+    metaConnection: publicProcedure.query(async () => getMetaConnectionStatus()),
 
     refreshStatus: publicProcedure.query(async () => {
       const [latestRun, latestSuccessfulRun] = await Promise.all([
