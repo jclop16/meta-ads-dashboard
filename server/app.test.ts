@@ -43,6 +43,24 @@ afterAll(() => {
 });
 
 describe("/api/internal/refresh", () => {
+  it("returns unavailable when no refresh api key is configured", async () => {
+    const { handleInternalRefreshRequest } = await import("./app");
+    const response = createMockResponse();
+
+    await handleInternalRefreshRequest(
+      {
+        header: vi.fn().mockReturnValue(undefined),
+      } as any,
+      response as any
+    );
+
+    expect(response.statusCode).toBe(503);
+    expect(response.payload).toEqual({
+      ok: false,
+      error: "Refresh API key is not configured",
+    });
+  });
+
   it("returns unauthorized without a valid bearer token", async () => {
     process.env.REFRESH_API_KEY = "top-secret";
     const { handleInternalRefreshRequest } = await import("./app");

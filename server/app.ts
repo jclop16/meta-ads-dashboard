@@ -73,6 +73,14 @@ export async function handleInternalRefreshRequest(
   request: Request,
   response: Response
 ) {
+  if (!ENV.refreshApiKey) {
+    response.status(503).json({
+      ok: false,
+      error: "Refresh API key is not configured",
+    });
+    return;
+  }
+
   if (!isInternalRefreshAuthorized(request)) {
     response.status(401).json({
       ok: false,

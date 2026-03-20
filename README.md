@@ -47,9 +47,9 @@ If port `3000` is busy, the server will pick the next available port and print i
 - `DATABASE_URL`
   MySQL connection string. Optional in development, required in production.
 - `APP_BASE_URL`
-  Public app URL used by the scheduled refresh job, for example `https://ads.example.com`.
+  Public app URL used by the scheduled refresh job, for example `https://ads.example.com`. On Railway, this can fall back to `RAILWAY_PUBLIC_DOMAIN` for smoke testing.
 - `REFRESH_API_KEY`
-  Shared secret for `POST /api/internal/refresh`.
+  Shared secret for `POST /api/internal/refresh`. If omitted, the app can still boot for testing, but the internal refresh endpoint stays disabled until you set it.
 - `META_ACCESS_TOKEN`
   Meta Marketing API token with access to the target ad account.
 - `META_AD_ACCOUNT_ID`
@@ -165,8 +165,9 @@ When `NODE_ENV=production`, the app refuses to boot unless all of these are set:
 - `DATABASE_URL`
 - `META_ACCESS_TOKEN`
 - `META_AD_ACCOUNT_ID`
-- `REFRESH_API_KEY`
-- `APP_BASE_URL`
+- `APP_BASE_URL` or Railway-provided `RAILWAY_PUBLIC_DOMAIN`
+
+`REFRESH_API_KEY` is still required for scheduled refresh automation, but it no longer blocks the app from booting for smoke tests.
 
 Demo mode is development-only.
 
@@ -180,7 +181,7 @@ Demo mode is development-only.
    - `META_ACCESS_TOKEN`
    - `META_AD_ACCOUNT_ID`
    - `REFRESH_API_KEY`
-   - `APP_BASE_URL`
+   - `APP_BASE_URL` (optional if you are temporarily using the Railway public domain)
 4. Use `/api/health` for the service health check.
 
 The included [Dockerfile](/Users/jclopez/Library/Mobile%20Documents/com~apple~CloudDocs/Work/FedLegacy/meta-ads-dashboard/Dockerfile) runs database migrations before starting the app:

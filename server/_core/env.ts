@@ -7,11 +7,17 @@ function normalizeBaseUrl(value: string) {
   return value.replace(/\/+$/, "");
 }
 
+function toHttpsUrl(hostOrUrl: string) {
+  if (!hostOrUrl) return "";
+  return hostOrUrl.startsWith("http://") || hostOrUrl.startsWith("https://")
+    ? hostOrUrl
+    : `https://${hostOrUrl}`;
+}
+
 export const REQUIRED_PRODUCTION_ENV_VARS = [
   "DATABASE_URL",
   "META_ACCESS_TOKEN",
   "META_AD_ACCOUNT_ID",
-  "REFRESH_API_KEY",
   "APP_BASE_URL",
 ] as const;
 
@@ -19,6 +25,9 @@ export type AppEnv = ReturnType<typeof readEnv>;
 
 export function readEnv(source: NodeJS.ProcessEnv = process.env) {
   const metaApiVersion = source.META_API_VERSION ?? "v22.0";
+  const railwayPublicDomain = source.RAILWAY_PUBLIC_DOMAIN ?? "";
+  const appBaseUrl =
+    source.APP_BASE_URL ?? toHttpsUrl(railwayPublicDomain);
 
   return {
     isProduction: source.NODE_ENV === "production",
@@ -29,7 +38,8 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env) {
     metaApiVersion,
     metaGraphBaseUrl: `https://graph.facebook.com/${metaApiVersion}`,
     refreshApiKey: source.REFRESH_API_KEY ?? "",
-    appBaseUrl: normalizeBaseUrl(source.APP_BASE_URL ?? ""),
+    railwayPublicDomain,
+    appBaseUrl: normalizeBaseUrl(appBaseUrl),
   };
 }
 
@@ -46,8 +56,6 @@ export function getMissingProductionEnvVars(env: AppEnv = ENV) {
         return !env.metaAccessToken;
       case "META_AD_ACCOUNT_ID":
         return !env.metaAdAccountId;
-      case "REFRESH_API_KEY":
-        return !env.refreshApiKey;
       case "APP_BASE_URL":
         return !env.appBaseUrl;
     }

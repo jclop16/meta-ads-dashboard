@@ -14,7 +14,6 @@ describe("startup environment validation", () => {
       DATABASE_URL: "mysql://user:pass@localhost:3306/meta_ads_dashboard",
       META_ACCESS_TOKEN: "token",
       META_AD_ACCOUNT_ID: "1234567890",
-      REFRESH_API_KEY: "secret",
       APP_BASE_URL: "https://ads.example.com",
     };
   });
@@ -40,6 +39,22 @@ describe("startup environment validation", () => {
       NODE_ENV: "development",
     });
 
+    expect(getMissingProductionEnvVars(env)).toEqual([]);
+    expect(() => assertStartupEnvironment(env)).not.toThrow();
+  });
+
+  it("falls back to Railway public domain for APP_BASE_URL", () => {
+    const env = readEnv({
+      NODE_ENV: "production",
+      DATABASE_URL: "mysql://user:pass@localhost:3306/meta_ads_dashboard",
+      META_ACCESS_TOKEN: "token",
+      META_AD_ACCOUNT_ID: "1234567890",
+      RAILWAY_PUBLIC_DOMAIN: "meta-ads-dashboard-production.up.railway.app",
+    });
+
+    expect(env.appBaseUrl).toBe(
+      "https://meta-ads-dashboard-production.up.railway.app"
+    );
     expect(getMissingProductionEnvVars(env)).toEqual([]);
     expect(() => assertStartupEnvironment(env)).not.toThrow();
   });
