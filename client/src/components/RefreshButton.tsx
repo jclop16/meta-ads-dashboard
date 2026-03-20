@@ -1,5 +1,4 @@
 // RefreshButton — triggers a live Meta Ads data pull for all date ranges
-import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { RefreshCw, CheckCircle, AlertTriangle, Loader2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -16,6 +15,7 @@ export default function RefreshButton({ onRefreshComplete }: RefreshButtonProps)
     onSuccess: (data) => {
       // Invalidate all dashboard queries to reload with fresh data
       utils.dashboard.metaState.invalidate();
+      utils.dashboard.refreshStatus.invalidate();
       utils.dashboard.snapshots.invalidate();
       utils.dashboard.snapshotDetail.invalidate();
       utils.dashboard.accountMetrics.invalidate();
@@ -43,6 +43,14 @@ export default function RefreshButton({ onRefreshComplete }: RefreshButtonProps)
       onRefreshComplete?.();
     },
     onError: (err) => {
+      utils.dashboard.metaState.invalidate();
+      utils.dashboard.refreshStatus.invalidate();
+      utils.dashboard.snapshots.invalidate();
+      utils.dashboard.snapshotDetail.invalidate();
+      utils.dashboard.accountMetrics.invalidate();
+      utils.dashboard.campaigns.invalidate();
+      utils.dashboard.actionItems.invalidate();
+      utils.dashboard.dailyPerformance.invalidate();
       toast.error("Refresh failed", {
         description: err.message,
         duration: 6000,

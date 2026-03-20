@@ -1,0 +1,22 @@
+name: Scheduled Meta Refresh
+
+on:
+  schedule:
+    - cron: "10 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger internal refresh endpoint
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          REFRESH_API_KEY: ${{ secrets.REFRESH_API_KEY }}
+        run: |
+          test -n "$APP_BASE_URL"
+          test -n "$REFRESH_API_KEY"
+          curl --fail --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer $REFRESH_API_KEY" \
+            "$APP_BASE_URL/api/internal/refresh"

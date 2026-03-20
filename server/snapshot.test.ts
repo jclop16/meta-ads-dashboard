@@ -102,9 +102,46 @@ vi.mock("./db", async (importOriginal) => {
         updatedAt: new Date("2026-03-19T14:00:00Z"),
       },
     ]),
-    saveSnapshot: vi.fn().mockResolvedValue(1),
-    replaceDailyPerformance: vi.fn().mockResolvedValue(undefined),
-    replaceCurrentDashboardData: vi.fn().mockResolvedValue(undefined),
+    getLatestRefreshRun: vi.fn().mockResolvedValue({
+      id: 9,
+      trigger: "manual",
+      status: "success",
+      startedAt: new Date("2026-03-19T14:00:00Z"),
+      finishedAt: new Date("2026-03-19T14:02:00Z"),
+      savedPresets: ["Last 30 Days"],
+      failedPresets: [],
+      errorMessage: null,
+      accountId: "act_1234567890",
+    }),
+    getLatestSuccessfulRefreshRun: vi.fn().mockResolvedValue({
+      id: 9,
+      trigger: "manual",
+      status: "success",
+      startedAt: new Date("2026-03-19T14:00:00Z"),
+      finishedAt: new Date("2026-03-19T14:02:00Z"),
+      savedPresets: ["Last 30 Days"],
+      failedPresets: [],
+      errorMessage: null,
+      accountId: "act_1234567890",
+    }),
+  };
+});
+
+vi.mock("./refreshService", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./refreshService")>();
+  return {
+    ...actual,
+    runDashboardRefresh: vi.fn().mockResolvedValue({
+      success: true,
+      saved: ["Last 30 Days"],
+      failed: [],
+      sourceMode: "live",
+      accountName: "Legacy Empowerment Group",
+      accountId: "act_1234567890",
+      fetchedAt: new Date("2026-03-19T14:02:00Z"),
+      refreshRunId: 9,
+      trigger: "manual",
+    }),
   };
 });
 
@@ -113,58 +150,7 @@ vi.mock("./metaAdsFetcher", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./metaAdsFetcher")>();
   return {
     ...actual,
-    fetchAllSnapshots: vi.fn().mockResolvedValue({
-      account: {
-        id: "act_1234567890",
-        name: "Legacy Empowerment Group",
-        currency: "USD",
-      },
-      sourceMode: "live",
-      snapshots: [
-        {
-          datePreset: "last_30d",
-          datePresetLabel: "Last 30 Days",
-          dateRangeSince: "2026-02-17",
-          dateRangeUntil: "2026-03-18",
-          isPartial: false,
-          account: {
-            amountSpent: 13219.5,
-            impressions: 1200000,
-            reach: 980000,
-            frequency: 1.22,
-            clicksAll: 18500,
-            linkClicks: 9200,
-            ctrAll: 1.54,
-            ctrLink: 0.77,
-            cpm: 11.02,
-            cpcAll: 0.7146,
-            cpcLink: 1.4369,
-            leads: 589,
-            costPerLead: 22.44,
-          },
-          campaigns: [],
-        },
-      ],
-    }),
-    fetchDailyPerformance: vi.fn().mockResolvedValue({
-      sourceMode: "live",
-      days: [
-        {
-          date: "2026-03-12",
-          label: "Mar 12",
-          amountSpent: 421.18,
-          leads: 19,
-          costPerLead: 22.17,
-        },
-        {
-          date: "2026-03-13",
-          label: "Mar 13",
-          amountSpent: 447.02,
-          leads: 21,
-          costPerLead: 21.29,
-        },
-      ],
-    }),
+    isMetaApiConfigured: vi.fn().mockReturnValue(true),
   };
 });
 
@@ -233,12 +219,23 @@ describe("dashboard.refresh", () => {
     expect(result.failed).toHaveLength(0);
   });
 
-  it("reports failed presets when saveSnapshot throws", async () => {
-    const { saveSnapshot } = await import("./db");
-    vi.mocked(saveSnapshot).mockRejectedValueOnce(new Error("DB error"));
+  it("surfaces refresh service failures", async () => {
+    const { runDashboardRefresh } = await import("./refreshService");
+    vi.mocked(runDashboardRefresh).mockRejectedValueOnce(new Error("DB error"));
     const caller = appRouter.createCaller(makeCtx());
-    const result = await caller.dashboard.refresh();
-    expect(result.failed).toContain("Last 30 Days");
+    await expect(caller.dashboard.refresh()).rejects.toThrow("DB error");
+  });
+});
+
+describe("dashboard.refreshStatus", () => {
+  it("returns latest refresh metadata", async () => {
+    const caller = appRouter.createCaller(makeCtx());
+    const result = await caller.dashboard.refreshStatus();
+
+    expect(result.latestStatus).toBe("success");
+    expect(result.latestTrigger).toBe("manual");
+    expect(result.latestSavedPresets).toContain("Last 30 Days");
+    expect(result.lastSuccessfulRefreshAt).toBeInstanceOf(Date);
   });
 });
 

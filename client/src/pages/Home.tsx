@@ -80,12 +80,36 @@ function formatDelta(current: number, previous: number) {
   return `${direction}${delta.toFixed(1)}% vs prior 7d`;
 }
 
+function formatRefreshTimestamp(value: Date | string | null | undefined) {
+  if (!value) {
+    return "No successful refresh yet";
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "Unavailable";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
 // ── Inner dashboard — has access to CplTargetContext ────────
 function DashboardContent() {
   const { cplTarget, getStatus, getColor } = useCplTarget();
 
   // Load data from database via tRPC
   const { data: metaState } = trpc.dashboard.metaState.useQuery();
+  const { data: refreshStatusData } = trpc.dashboard.refreshStatus.useQuery(
+    undefined,
+    {
+      refetchInterval: 60 * 1000,
+    }
+  );
   const { data: metricsData } = trpc.dashboard.accountMetrics.useQuery();
   const { data: campaignsData } = trpc.dashboard.campaigns.useQuery();
   const { data: actionItemsData } = trpc.dashboard.actionItems.useQuery();
@@ -106,6 +130,13 @@ function DashboardContent() {
   const reportDateRange = metricsData?.reportDateRange ?? "No reporting window yet";
   const dataSourceLabel =
     metaState?.sourceMode === "live" ? "Live Meta Graph API" : "Demo Mode";
+  const latestRefreshStatus = refreshStatusData?.latestStatus ?? null;
+  const lastSuccessfulRefreshLabel = formatRefreshTimestamp(
+    refreshStatusData?.lastSuccessfulRefreshAt
+  );
+  const latestRefreshFinishedLabel = formatRefreshTimestamp(
+    refreshStatusData?.latestFinishedAt
+  );
   const dailyTrend = useMemo(
     () =>
       (dailyPerformanceData?.days ?? []).map(day => ({
@@ -292,6 +323,33 @@ function DashboardContent() {
               ? `Connected to ${metaState.adAccountId ?? "your configured ad account"}`
               : "Set META_ACCESS_TOKEN and META_AD_ACCOUNT_ID to switch from demo data to live Meta reporting."}
           </span>
+          <span style={{ color: "#475569" }}>
+            Last success: {lastSuccessfulRefreshLabel}
+          </span>
+          <span
+            className="px-2 py-1 rounded-full"
+            style={{
+              color:
+                latestRefreshStatus === "failed"
+                  ? "#FF3B5C"
+                  : latestRefreshStatus === "success"
+                    ? "#00E676"
+                    : "#FFB300",
+              background:
+                latestRefreshStatus === "failed"
+                  ? "rgba(255,59,92,0.12)"
+                  : latestRefreshStatus === "success"
+                    ? "rgba(0,230,118,0.12)"
+                    : "rgba(255,179,0,0.12)",
+            }}
+          >
+            Latest run: {latestRefreshStatus ?? "none"}
+          </span>
+          {refreshStatusData?.latestFinishedAt ? (
+            <span style={{ color: "#475569" }}>
+              Finished: {latestRefreshFinishedLabel}
+            </span>
+          ) : null}
         </div>
       </div>
 
@@ -345,6 +403,33 @@ function DashboardContent() {
 
       {/* ── MAIN CONTENT ───────────────────────────────────── */}
       <main className="px-4 sm:px-6 py-6 space-y-8 max-w-[1440px] mx-auto">
+        {latestRefreshStatus === "failed" ? (
+          <section
+            className="rounded-lg border px-4 py-3 flex flex-wrap items-start gap-3"
+            style={{
+              background: "rgba(255,59,92,0.08)",
+              borderColor: "rgba(255,59,92,0.22)",
+            }}
+          >
+            <AlertTriangle size={16} style={{ color: "#FF3B5C", marginTop: 2 }} />
+            <div className="space-y-1">
+              <p
+                className="text-sm font-semibold"
+                style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#FCA5A5" }}
+              >
+                Latest refresh failed
+              </p>
+              <p className="text-xs font-mono" style={{ color: "#CBD5E1" }}>
+                {refreshStatusData?.latestErrorMessage ?? "Unknown refresh failure"}
+              </p>
+              {refreshStatusData?.latestFailedPresets?.length ? (
+                <p className="text-[11px] font-mono" style={{ color: "#94A3B8" }}>
+                  Failed presets: {refreshStatusData.latestFailedPresets.join(" · ")}
+                </p>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
 
         {/* ── KPI GRID ─────────────────────────────────────── */}
         <section>

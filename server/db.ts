@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   accountMetrics,
@@ -6,6 +6,7 @@ import {
   campaigns,
   dailyPerformance,
   performanceSnapshots,
+  refreshRuns,
   snapshotCampaigns,
   userSettings,
   users,
@@ -15,6 +16,9 @@ import {
   type DailyPerformance,
   type InsertUser,
   type PerformanceSnapshot,
+  type RefreshRun,
+  type RefreshRunStatus,
+  type RefreshRunTrigger,
   type SnapshotCampaign,
   type User,
   type UserSetting,
@@ -39,6 +43,7 @@ type MemoryStore = {
   campaigns: Campaign[];
   actionItems: ActionItem[];
   dailyPerformance: DailyPerformance[];
+  refreshRuns: RefreshRun[];
   settings: UserSetting[];
   snapshots: PerformanceSnapshot[];
   snapshotCampaigns: SnapshotCampaign[];
@@ -46,10 +51,19 @@ type MemoryStore = {
     user: number;
     accountMetrics: number;
     actionItem: number;
+    refreshRun: number;
     setting: number;
     snapshot: number;
     snapshotCampaign: number;
   };
+};
+
+export type RefreshRunRecord = Omit<
+  RefreshRun,
+  "savedPresets" | "failedPresets"
+> & {
+  savedPresets: string[];
+  failedPresets: string[];
 };
 
 let dbInstance: ReturnType<typeof drizzle> | null = null;
@@ -132,6 +146,33 @@ function toDailyPerformanceRows(
   }));
 }
 
+function encodePresetList(values: string[]) {
+  return values.length > 0 ? JSON.stringify(values) : null;
+}
+
+function decodePresetList(value: string | null) {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is string => typeof entry === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function toRefreshRunRecord(row: RefreshRun): RefreshRunRecord {
+  return {
+    ...row,
+    savedPresets: decodePresetList(row.savedPresets),
+    failedPresets: decodePresetList(row.failedPresets),
+  };
+}
+
 function priorityRank(priority: ActionItem["priority"]) {
   if (priority === "critical") return 0;
   if (priority === "high") return 1;
@@ -149,6 +190,7 @@ function createInitialMemoryStore(): MemoryStore {
     campaigns: [],
     actionItems: [],
     dailyPerformance: [],
+    refreshRuns: [],
     settings: [],
     snapshots: [],
     snapshotCampaigns: [],
@@ -156,6 +198,7 @@ function createInitialMemoryStore(): MemoryStore {
       user: 1,
       accountMetrics: 1,
       actionItem: 1,
+      refreshRun: 1,
       setting: 1,
       snapshot: 1,
       snapshotCampaign: 1,
@@ -258,6 +301,49 @@ function replaceDailyPerformanceInMemory(
   store.dailyPerformance = toDailyPerformanceRows(days);
 }
 
+function createRefreshRunInMemory(
+  store: MemoryStore,
+  input: { trigger: RefreshRunTrigger; accountId?: string | null }
+) {
+  const id = store.nextIds.refreshRun++;
+  store.refreshRuns.push({
+    id,
+    trigger: input.trigger,
+    status: "started",
+    startedAt: new Date(),
+    finishedAt: null,
+    savedPresets: null,
+    failedPresets: null,
+    errorMessage: null,
+    accountId: input.accountId ?? null,
+  });
+  return id;
+}
+
+function finishRefreshRunInMemory(
+  store: MemoryStore,
+  id: number,
+  input: {
+    status: RefreshRunStatus;
+    savedPresets?: string[];
+    failedPresets?: string[];
+    errorMessage?: string | null;
+  }
+) {
+  store.refreshRuns = store.refreshRuns.map(run =>
+    run.id === id
+      ? {
+          ...run,
+          status: input.status,
+          finishedAt: new Date(),
+          savedPresets: encodePresetList(input.savedPresets ?? []),
+          failedPresets: encodePresetList(input.failedPresets ?? []),
+          errorMessage: input.errorMessage ?? null,
+        }
+      : run
+  );
+}
+
 export async function getDb() {
   if (!dbInstance && ENV.databaseUrl) {
     try {
@@ -269,6 +355,115 @@ export async function getDb() {
   }
 
   return dbInstance;
+}
+
+export async function isDatabaseAvailable() {
+  const db = await getDb();
+
+  if (!db) {
+    return false;
+  }
+
+  try {
+    await db.execute(sql`select 1`);
+    return true;
+  } catch (error) {
+    console.warn("[Database] Health check failed:", error);
+    return false;
+  }
+}
+
+export async function createRefreshRun(input: {
+  trigger: RefreshRunTrigger;
+  accountId?: string | null;
+}) {
+  const db = await getDb();
+
+  if (!db) {
+    return createRefreshRunInMemory(getMemoryStore(), input);
+  }
+
+  const [result] = await db.insert(refreshRuns).values({
+    trigger: input.trigger,
+    status: "started",
+    accountId: input.accountId ?? null,
+  });
+
+  return (result as { insertId: number }).insertId;
+}
+
+export async function finishRefreshRun(
+  id: number,
+  input: {
+    status: RefreshRunStatus;
+    savedPresets?: string[];
+    failedPresets?: string[];
+    errorMessage?: string | null;
+  }
+) {
+  const db = await getDb();
+
+  if (!db) {
+    finishRefreshRunInMemory(getMemoryStore(), id, input);
+    return;
+  }
+
+  await db
+    .update(refreshRuns)
+    .set({
+      status: input.status,
+      finishedAt: new Date(),
+      savedPresets: encodePresetList(input.savedPresets ?? []),
+      failedPresets: encodePresetList(input.failedPresets ?? []),
+      errorMessage: input.errorMessage ?? null,
+    })
+    .where(eq(refreshRuns.id, id));
+}
+
+export async function getLatestRefreshRun() {
+  const db = await getDb();
+
+  if (!db) {
+    const latest = [...getMemoryStore().refreshRuns].sort((left, right) => {
+      return right.startedAt.getTime() - left.startedAt.getTime() || right.id - left.id;
+    })[0];
+
+    return latest ? toRefreshRunRecord(latest) : null;
+  }
+
+  const result = await db
+    .select()
+    .from(refreshRuns)
+    .orderBy(desc(refreshRuns.startedAt), desc(refreshRuns.id))
+    .limit(1);
+
+  return result[0] ? toRefreshRunRecord(result[0]) : null;
+}
+
+export async function getLatestSuccessfulRefreshRun() {
+  const db = await getDb();
+
+  if (!db) {
+    const latest = [...getMemoryStore().refreshRuns]
+      .filter(run => run.status === "success" && run.finishedAt != null)
+      .sort((left, right) => {
+        return (
+          (right.finishedAt?.getTime() ?? 0) - (left.finishedAt?.getTime() ?? 0) ||
+          right.id - left.id
+        );
+      })[0];
+
+    return latest ? toRefreshRunRecord(latest) : null;
+  }
+
+  const result = await db
+    .select()
+    .from(refreshRuns)
+    .where(eq(refreshRuns.status, "success"))
+    .orderBy(desc(refreshRuns.finishedAt), desc(refreshRuns.id))
+    .limit(1);
+
+  return result[0] ? toRefreshRunRecord(result[0]) : null;
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {

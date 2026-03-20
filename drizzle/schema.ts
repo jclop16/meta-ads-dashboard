@@ -114,6 +114,23 @@ export const dailyPerformance = mysqlTable("daily_performance", {
 
 export type DailyPerformance = typeof dailyPerformance.$inferSelect;
 
+// ── Refresh run audit log ───────────────────────────────────
+export const refreshRuns = mysqlTable("refresh_runs", {
+  id: int("id").autoincrement().primaryKey(),
+  trigger: mysqlEnum("trigger", ["manual", "scheduled"]).notNull(),
+  status: mysqlEnum("status", ["started", "success", "failed"]).notNull(),
+  startedAt: timestamp("startedAt").defaultNow().notNull(),
+  finishedAt: timestamp("finishedAt"),
+  savedPresets: text("savedPresets"),
+  failedPresets: text("failedPresets"),
+  errorMessage: text("errorMessage"),
+  accountId: varchar("accountId", { length: 64 }),
+});
+
+export type RefreshRun = typeof refreshRuns.$inferSelect;
+export type RefreshRunTrigger = typeof refreshRuns.$inferSelect["trigger"];
+export type RefreshRunStatus = typeof refreshRuns.$inferSelect["status"];
+
 // ── Per-user dashboard settings (CPL target, etc.) ──────────
 export const userSettings = mysqlTable("user_settings", {
   id: int("id").autoincrement().primaryKey(),

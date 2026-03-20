@@ -7,14 +7,13 @@ import {
   getAllCampaigns,
   getAllActionItems,
   getDailyPerformance,
+  getLatestRefreshRun,
+  getLatestSuccessfulRefreshRun,
   toggleActionItem,
   getSetting,
   upsertSetting,
-  saveSnapshot,
   getAllSnapshots,
   getSnapshotWithCampaigns,
-  replaceDailyPerformance,
-  replaceCurrentDashboardData,
 } from "./db";
 import {
   buildCampaignRecommendation,
@@ -23,11 +22,21 @@ import {
 } from "./dashboardLogic";
 import {
   DATE_PRESETS,
-  fetchAllSnapshots,
-  fetchDailyPerformance,
   isMetaApiConfigured,
 } from "./metaAdsFetcher";
 import { ENV } from "./_core/env";
+import { runDashboardRefresh } from "./refreshService";
+
+async function resolveCplTarget(userId: number | null) {
+  const storedTarget = userId != null ? await getSetting("cplTarget", userId) : null;
+  const fallbackTarget = await getSetting("cplTarget", null);
+
+  return storedTarget != null
+    ? Number.parseFloat(storedTarget)
+    : fallbackTarget != null
+      ? Number.parseFloat(fallbackTarget)
+      : DEFAULT_CPL_TARGET;
+}
 
 export const appRouter = router({
   auth: router({
@@ -48,6 +57,24 @@ export const appRouter = router({
       apiVersion: ENV.metaApiVersion,
     })),
 
+    refreshStatus: publicProcedure.query(async () => {
+      const [latestRun, latestSuccessfulRun] = await Promise.all([
+        getLatestRefreshRun(),
+        getLatestSuccessfulRefreshRun(),
+      ]);
+
+      return {
+        latestStatus: latestRun?.status ?? null,
+        latestTrigger: latestRun?.trigger ?? null,
+        latestFinishedAt: latestRun?.finishedAt ?? null,
+        latestStartedAt: latestRun?.startedAt ?? null,
+        latestErrorMessage: latestRun?.errorMessage ?? null,
+        latestSavedPresets: latestRun?.savedPresets ?? [],
+        latestFailedPresets: latestRun?.failedPresets ?? [],
+        lastSuccessfulRefreshAt: latestSuccessfulRun?.finishedAt ?? null,
+      };
+    }),
+
     accountMetrics: publicProcedure.query(async () => {
       const metrics = await getLatestAccountMetrics();
       if (!metrics) return null;
@@ -66,15 +93,7 @@ export const appRouter = router({
 
     campaigns: publicProcedure.query(async ({ ctx }) => {
       const rows = await getAllCampaigns();
-      const userId = ctx.user?.id ?? null;
-      const storedTarget = userId != null ? await getSetting("cplTarget", userId) : null;
-      const fallbackTarget = await getSetting("cplTarget", null);
-      const cplTarget =
-        storedTarget != null
-          ? Number.parseFloat(storedTarget)
-          : fallbackTarget != null
-            ? Number.parseFloat(fallbackTarget)
-            : DEFAULT_CPL_TARGET;
+      const cplTarget = await resolveCplTarget(ctx.user?.id ?? null);
 
       return rows.map(c => ({
         ...c,
@@ -140,55 +159,15 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         await toggleActionItem(input.id, input.completed);
         return { success: true };
-      }),
+    }),
 
     // Refresh all date-range snapshots from Meta Ads API
-    refresh: publicProcedure.mutation(async ({ ctx }) => {
-      const { account, snapshots, sourceMode } = await fetchAllSnapshots();
-      const dailyPerformance = await fetchDailyPerformance();
-      const userId = ctx.user?.id ?? null;
-      const storedTarget = userId != null ? await getSetting("cplTarget", userId) : null;
-      const fallbackTarget = await getSetting("cplTarget", null);
-      const cplTarget =
-        storedTarget != null
-          ? Number.parseFloat(storedTarget)
-          : fallbackTarget != null
-            ? Number.parseFloat(fallbackTarget)
-            : DEFAULT_CPL_TARGET;
-      const saved: string[] = [];
-      const failed: string[] = [];
-
-      for (const snapshot of snapshots) {
-        try {
-          await saveSnapshot(snapshot);
-          saved.push(snapshot.datePresetLabel);
-        } catch (err) {
-          console.error(
-            `[Refresh] Failed to save ${snapshot.datePresetLabel}:`,
-            err
-          );
-          failed.push(snapshot.datePresetLabel);
-        }
-      }
-
-      const primarySnapshot =
-        snapshots.find(snapshot => snapshot.datePreset === "last_30d") ??
-        snapshots[0];
-
-      if (primarySnapshot) {
-        await replaceCurrentDashboardData(account, primarySnapshot, cplTarget);
-      }
-      await replaceDailyPerformance(dailyPerformance.days);
-
-      return {
-        success: true,
-        saved,
-        failed,
-        sourceMode,
-        accountName: account.name,
-        fetchedAt: new Date(),
-      };
-    }),
+    refresh: publicProcedure.mutation(async ({ ctx }) =>
+      runDashboardRefresh({
+        trigger: "manual",
+        userId: ctx.user?.id ?? null,
+      })
+    ),
 
     // List all stored snapshots (summary only)
     snapshots: publicProcedure.query(async () => {

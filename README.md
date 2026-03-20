@@ -9,10 +9,12 @@ This baseline no longer depends on Manus. It supports:
 - Snapshot history for common reporting windows
 - Current dashboard tables derived from the latest refresh
 - Stored 30-day daily pacing series for trend analysis
+- Refresh-run audit logging for manual and scheduled syncs
+- Railway-ready production boot with Cloudflare in front
 
 ## Product scope
 
-Current Phase 1.5 capabilities:
+Current Production V1 capabilities:
 
 - Account KPI view for the active reporting window
 - Campaign breakdown with CPL-aware recommendations
@@ -20,6 +22,8 @@ Current Phase 1.5 capabilities:
 - Action queue for scale, pause, and optimization decisions
 - Snapshot history for `last_30d`, `last_7d`, `this_week_mon_today`, `today`, and `yesterday`
 - 30-day daily spend and lead series persisted on refresh
+- Protected internal refresh endpoint for automation
+- Refresh health/status surface in the UI and `/api/health`
 
 Still not in scope yet:
 
@@ -32,15 +36,20 @@ Still not in scope yet:
 
 1. Copy [.env.example](/Users/jclopez/Library/Mobile%20Documents/com~apple~CloudDocs/Work/FedLegacy/meta-ads-dashboard/.env.example) to `.env`.
 2. Install dependencies with `npm install`.
-3. Start the app with `npm run dev`.
-4. Open `http://localhost:3000`.
+3. If you want persistence locally, point `DATABASE_URL` at MySQL and run `npm run db:push`.
+4. Start the app with `npm run dev`.
+5. Open `http://localhost:3000`.
 
 If port `3000` is busy, the server will pick the next available port and print it in the terminal.
 
 ## Environment
 
 - `DATABASE_URL`
-  Optional MySQL connection string. If omitted, the app runs in memory.
+  MySQL connection string. Optional in development, required in production.
+- `APP_BASE_URL`
+  Public app URL used by the scheduled refresh job, for example `https://ads.example.com`.
+- `REFRESH_API_KEY`
+  Shared secret for `POST /api/internal/refresh`.
 - `META_ACCESS_TOKEN`
   Meta Marketing API token with access to the target ad account.
 - `META_AD_ACCOUNT_ID`
@@ -54,7 +63,7 @@ If port `3000` is busy, the server will pick the next available port and print i
 
 ### Demo mode
 
-If you start the app without Meta credentials, it boots with demo data. This is useful for UI review, layout work, and deployment smoke tests.
+If you start the app in development without Meta credentials, it boots with demo data. This is useful for UI review and layout work.
 
 ### Live mode
 
@@ -65,12 +74,15 @@ To switch to live Meta reporting:
 3. Restart the app if it is already running.
 4. Click `Refresh from Meta Ads`.
 
-That refresh will:
+Any successful refresh will:
 
 - Pull the configured reporting windows from the Meta Graph API
 - Save/update the snapshot history
 - Replace the current account metrics, campaign table, and action items
 - Save the 30-day daily spend/lead series used by the home-page trend chart
+- Write a `refresh_runs` audit record for health checks and ops visibility
+
+If a refresh partially saves data but any preset fails, the run is marked as failed and the UI surfaces the error state.
 
 ### CPL target
 
@@ -97,6 +109,12 @@ After schema changes, run:
 npm run db:push
 ```
 
+For production startup and deploy-time migration runs, use:
+
+```bash
+npm run db:migrate:deploy
+```
+
 ## Health check
 
 The app exposes:
@@ -110,11 +128,17 @@ This returns JSON with:
 - `ok`
 - `timestamp`
 - `uptimeSeconds`
-- `sourceMode`
 - `metaConfigured`
 - `databaseConfigured`
+- `lastRefreshAt`
+- `lastRefreshStatus`
 
-Use that for deploy health checks.
+The endpoint returns `503` if:
+
+- the configured database is unavailable, or
+- there has not been a successful refresh in the last 8 hours
+
+Use that for Railway health checks.
 
 ## Build and run
 
@@ -125,30 +149,74 @@ npm run start
 
 Production serves the built client from `dist/public` and the Node server from `dist/index.js`.
 
-## Live launch options
+## Production deployment
 
-### Option 1: Node service on Railway / Render / Fly.io
+This V1 is designed to run as:
 
-Use:
+- Railway for the app container
+- Railway MySQL for persistence
+- Cloudflare for DNS, SSL, and Zero Trust Access
+- GitHub Actions for the scheduled refresh job
 
-- Build command: `npm install && npm run build`
-- Start command: `npm run start`
+### Required production env vars
 
-Set these environment variables in the platform:
+When `NODE_ENV=production`, the app refuses to boot unless all of these are set:
 
-- `NODE_ENV=production`
-- `PORT` (usually injected by the platform)
-- `DATABASE_URL` if you want persistence
+- `DATABASE_URL`
 - `META_ACCESS_TOKEN`
 - `META_AD_ACCOUNT_ID`
-- `META_API_VERSION` optional
-- `META_ACCOUNT_NAME` optional
+- `REFRESH_API_KEY`
+- `APP_BASE_URL`
 
-Recommended health check path:
+Demo mode is development-only.
 
-- `/api/health`
+### Railway
 
-### Option 2: Docker
+1. Provision a Railway MySQL database.
+2. Connect Railway to this GitHub repo and deploy from `main`.
+3. Set:
+   - `NODE_ENV=production`
+   - `DATABASE_URL`
+   - `META_ACCESS_TOKEN`
+   - `META_AD_ACCOUNT_ID`
+   - `REFRESH_API_KEY`
+   - `APP_BASE_URL`
+4. Use `/api/health` for the service health check.
+
+The included [Dockerfile](/Users/jclopez/Library/Mobile%20Documents/com~apple~CloudDocs/Work/FedLegacy/meta-ads-dashboard/Dockerfile) runs database migrations before starting the app:
+
+```text
+npm run db:migrate:deploy && npm run start
+```
+
+### Cloudflare
+
+No custom Cloudflare HTML is needed.
+
+Recommended setup:
+
+1. Create a proxied DNS record such as `ads.<your-domain>` pointing at the Railway hostname.
+2. Set SSL/TLS mode to `Full (strict)`.
+3. Protect the site with Cloudflare Zero Trust Access and restrict it to internal admin emails.
+4. Exclude `/api/internal/refresh` from Cloudflare Access, because that route is protected by `REFRESH_API_KEY`.
+
+### Scheduled refresh job
+
+The repo includes [.github/workflows/scheduled-refresh.yml](/Users/jclopez/Library/Mobile%20Documents/com~apple~CloudDocs/Work/FedLegacy/meta-ads-dashboard/.github/workflows/scheduled-refresh.yml), which runs every 6 hours and on manual dispatch.
+
+Set these GitHub Actions secrets:
+
+- `APP_BASE_URL`
+- `REFRESH_API_KEY`
+
+The workflow calls:
+
+```text
+POST $APP_BASE_URL/api/internal/refresh
+Authorization: Bearer $REFRESH_API_KEY
+```
+
+## Docker
 
 This repo includes a [Dockerfile](/Users/jclopez/Library/Mobile%20Documents/com~apple~CloudDocs/Work/FedLegacy/meta-ads-dashboard/Dockerfile).
 
@@ -164,6 +232,8 @@ Run locally:
 docker run --rm -p 3000:3000 --env-file .env meta-ads-dashboard
 ```
 
+For a production-like container boot, `.env` must include the required production variables.
+
 ## Scripts
 
 - `npm run dev`
@@ -173,6 +243,7 @@ docker run --rm -p 3000:3000 --env-file .env meta-ads-dashboard
 - `npm test`
 - `npm run format`
 - `npm run db:push`
+- `npm run db:migrate:deploy`
 - `npm run db:seed`
 
 ## Recommended next product steps

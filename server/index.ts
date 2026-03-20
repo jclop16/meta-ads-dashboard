@@ -1,13 +1,7 @@
 import "dotenv/config";
-import express from "express";
-import { createServer } from "http";
 import net from "net";
-import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { createContext } from "./_core/context";
-import { serveStatic, setupVite } from "./_core/vite";
-import { ENV } from "./_core/env";
-import { isMetaApiConfigured } from "./metaAdsFetcher";
-import { appRouter } from "./routers";
+import { assertStartupEnvironment } from "./_core/env";
+import { createApp } from "./app";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -30,36 +24,8 @@ async function findAvailablePort(startPort = 3000): Promise<number> {
 }
 
 async function startServer() {
-  const app = express();
-  const server = createServer(app);
-
-  app.use(express.json({ limit: "10mb" }));
-  app.use(express.urlencoded({ extended: true, limit: "10mb" }));
-
-  app.get("/api/health", (_req, res) => {
-    res.json({
-      ok: true,
-      timestamp: new Date().toISOString(),
-      uptimeSeconds: Math.round(process.uptime()),
-      sourceMode: isMetaApiConfigured() ? "live" : "demo",
-      metaConfigured: isMetaApiConfigured(),
-      databaseConfigured: Boolean(ENV.databaseUrl),
-    });
-  });
-
-  app.use(
-    "/api/trpc",
-    createExpressMiddleware({
-      router: appRouter,
-      createContext,
-    })
-  );
-
-  if (process.env.NODE_ENV === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
-  }
+  assertStartupEnvironment();
+  const { server } = await createApp();
 
   const preferredPort = Number.parseInt(process.env.PORT || "3000", 10);
   const port = await findAvailablePort(preferredPort);
