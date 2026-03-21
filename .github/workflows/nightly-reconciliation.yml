@@ -1,0 +1,23 @@
+name: Nightly Historical Reconciliation
+
+on:
+  schedule:
+    - cron: "40 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger historical reconciliation endpoint
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          REFRESH_API_KEY: ${{ secrets.REFRESH_API_KEY }}
+        run: |
+          test -n "$APP_BASE_URL"
+          test -n "$REFRESH_API_KEY"
+          BASE_URL="${APP_BASE_URL%/}"
+          curl --fail --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer $REFRESH_API_KEY" \
+            "$BASE_URL/api/internal/refresh?mode=reconcile"

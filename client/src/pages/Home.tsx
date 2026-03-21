@@ -100,7 +100,7 @@ function formatRefreshTimestamp(value: Date | string | null | undefined) {
 
 // ── Inner dashboard — has access to CplTargetContext ────────
 function DashboardContent() {
-  const { cplTarget, getStatus, getColor } = useCplTarget();
+  const { cplTarget, getColor } = useCplTarget();
 
   // Load data from database via tRPC
   const { data: metaState } = trpc.dashboard.metaState.useQuery();
@@ -185,12 +185,12 @@ function DashboardContent() {
 
   // Dynamic counts based on current target
   const excellentCampaigns = useMemo(
-    () => campaigns.filter(c => getStatus(c.costPerLead) === "excellent"),
-    [campaigns, cplTarget]
+    () => campaigns.filter(c => c.performanceStatus === "excellent"),
+    [campaigns]
   );
   const poorCampaigns = useMemo(
-    () => campaigns.filter(c => getStatus(c.costPerLead) === "poor"),
-    [campaigns, cplTarget]
+    () => campaigns.filter(c => c.performanceStatus === "poor"),
+    [campaigns]
   );
   const wastedSpend = useMemo(
     () => poorCampaigns.reduce((s, c) => s + c.amountSpent, 0),
@@ -204,7 +204,7 @@ function DashboardContent() {
         .filter(c => c.costPerLead !== null)
         .sort((a, b) => (a.costPerLead ?? 0) - (b.costPerLead ?? 0))
         .map(c => ({
-          name: c.shortName,
+          name: c.displayName ?? c.shortName,
           cpl: c.costPerLead,
           color: getColor(c.costPerLead),
         })),
@@ -218,7 +218,7 @@ function DashboardContent() {
         .filter(c => c.leads > 0)
         .sort((a, b) => b.leads - a.leads)
         .map(c => ({
-          name: c.shortName,
+          name: c.displayName ?? c.shortName,
           leads: c.leads,
           color: getColor(c.costPerLead),
         })),
@@ -798,7 +798,7 @@ function DashboardContent() {
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <p className="text-sm font-semibold mb-1" style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#CBD5E1" }}>
-                            {c.shortName}
+                            {c.displayName ?? c.shortName}
                           </p>
                           <div className="flex gap-3 flex-wrap">
                             <Stat label="CPL" value={`$${c.costPerLead?.toFixed(2)}`} color="#00E676" />
@@ -844,7 +844,7 @@ function DashboardContent() {
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <p className="text-sm font-semibold mb-1" style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#CBD5E1" }}>
-                            {c.shortName}
+                            {c.displayName ?? c.shortName}
                           </p>
                           <div className="flex gap-3 flex-wrap">
                             <Stat label="CPL" value={`$${c.costPerLead?.toFixed(2)}`} color="#FF3B5C" />

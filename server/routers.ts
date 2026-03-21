@@ -3,10 +3,7 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { publicProcedure, router } from "./_core/trpc";
 import {
-  getLatestAccountMetrics,
-  getAllCampaigns,
   getAllActionItems,
-  getDailyPerformance,
   getLatestRefreshRun,
   getLatestSuccessfulRefreshRun,
   toggleActionItem,
@@ -16,9 +13,7 @@ import {
   getSnapshotWithCampaigns,
 } from "./db";
 import {
-  buildCampaignRecommendation,
   DEFAULT_CPL_TARGET,
-  getCampaignStatus,
 } from "./dashboardLogic";
 import {
   DATE_PRESETS,
@@ -34,6 +29,7 @@ import {
   getExplorerCampaignBreakdown,
   getExplorerSummary,
   getExplorerTrendSeries,
+  getHomeDashboardView,
 } from "./reportingStore";
 
 async function resolveCplTarget(userId: number | null) {
@@ -96,52 +92,16 @@ export const appRouter = router({
     }),
 
     accountMetrics: publicProcedure.query(async () => {
-      const metrics = await getLatestAccountMetrics();
-      if (!metrics) return null;
-      return {
-        ...metrics,
-        amountSpent: parseFloat(metrics.amountSpent),
-        frequency: parseFloat(metrics.frequency),
-        ctrAll: parseFloat(metrics.ctrAll),
-        ctrLink: parseFloat(metrics.ctrLink),
-        cpm: parseFloat(metrics.cpm),
-        cpcAll: parseFloat(metrics.cpcAll),
-        cpcLink: parseFloat(metrics.cpcLink),
-        costPerLead: parseFloat(metrics.costPerLead),
-      };
+      const view = await getHomeDashboardView(
+        await resolveCplTarget(null)
+      );
+      return view.accountMetrics;
     }),
 
     campaigns: publicProcedure.query(async ({ ctx }) => {
-      const rows = await getAllCampaigns();
       const cplTarget = await resolveCplTarget(ctx.user?.id ?? null);
-
-      return rows.map(c => ({
-        ...c,
-        status: getCampaignStatus(
-          c.costPerLead != null ? parseFloat(c.costPerLead) : null,
-          cplTarget
-        ),
-        recommendation: buildCampaignRecommendation(
-          {
-            shortName: c.shortName,
-            amountSpent: parseFloat(c.amountSpent),
-            leads: c.leads,
-            linkClicks: c.linkClicks,
-            ctrLink: parseFloat(c.ctrLink),
-            frequency: parseFloat(c.frequency),
-            costPerLead: c.costPerLead != null ? parseFloat(c.costPerLead) : null,
-          },
-          cplTarget
-        ),
-        amountSpent: parseFloat(c.amountSpent),
-        frequency: parseFloat(c.frequency),
-        ctrAll: parseFloat(c.ctrAll),
-        ctrLink: parseFloat(c.ctrLink),
-        cpm: parseFloat(c.cpm),
-        cpcAll: parseFloat(c.cpcAll),
-        cpcLink: parseFloat(c.cpcLink),
-        costPerLead: c.costPerLead != null ? parseFloat(c.costPerLead) : null,
-      }));
+      const view = await getHomeDashboardView(cplTarget);
+      return view.campaigns;
     }),
 
     actionItems: publicProcedure.query(async () => {
@@ -149,17 +109,11 @@ export const appRouter = router({
     }),
 
     dailyPerformance: publicProcedure.query(async () => {
-      const rows = await getDailyPerformance();
-
+      const view = await getHomeDashboardView(
+        await resolveCplTarget(null)
+      );
       return {
-        days: rows.map(row => ({
-          date: row.date,
-          label: row.label,
-          amountSpent: parseFloat(row.amountSpent),
-          leads: row.leads,
-          costPerLead:
-            row.costPerLead != null ? parseFloat(row.costPerLead) : null,
-        })),
+        days: view.dailyPerformance,
       };
     }),
 

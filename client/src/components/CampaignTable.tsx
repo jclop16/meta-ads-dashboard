@@ -20,7 +20,7 @@ function fmtCurrency(n: number) {
 }
 
 export default function CampaignTable({ campaigns }: CampaignTableProps) {
-  const { getStatus, getColor, cplTarget } = useCplTarget();
+  const { getColor, cplTarget } = useCplTarget();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<keyof DashboardCampaign>("amountSpent");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -100,7 +100,7 @@ export default function CampaignTable({ campaigns }: CampaignTableProps) {
         </thead>
         <tbody>
           {sorted.map((c, i) => {
-            const dynStatus = getStatus(c.costPerLead);
+            const dynStatus = c.performanceStatus;
             const dynColor = getColor(c.costPerLead);
             const rowBg = rowBgMap[dynStatus];
             const barColor = rowBarMap[dynStatus];
@@ -128,7 +128,7 @@ export default function CampaignTable({ campaigns }: CampaignTableProps) {
                         className="text-sm font-medium leading-snug"
                         style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#CBD5E1" }}
                       >
-                        {c.shortName}
+                        {c.displayName ?? c.shortName}
                       </span>
                     </div>
                   </td>
@@ -193,6 +193,10 @@ export default function CampaignTable({ campaigns }: CampaignTableProps) {
                               {c.recommendation}
                             </p>
                             <div className="flex gap-4 mt-2 flex-wrap">
+                              <span className="text-xs font-mono" style={{ color: "#475569" }}>
+                                Performance Score:{" "}
+                                <span style={{ color: "#94A3B8" }}>{c.performanceScore}/100</span>
+                              </span>
                               <span className="text-xs font-mono" style={{ color: "#475569" }}>
                                 CPL vs Target:{" "}
                                 <span style={{ color: dynColor, fontWeight: 600 }}>

@@ -145,6 +145,58 @@ vi.mock("./refreshService", async (importOriginal) => {
   };
 });
 
+vi.mock("./reportingStore", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./reportingStore")>();
+  return {
+    ...actual,
+    getHomeDashboardView: vi.fn().mockResolvedValue({
+      range: {
+        preset: "last_30d",
+        since: "2026-02-17",
+        until: "2026-03-18",
+        previousSince: "2026-01-18",
+        previousUntil: "2026-02-16",
+        label: "Feb 17 – Mar 18, 2026",
+      },
+      accountMetrics: {
+        reportDateRange: "Feb 17 – Mar 18, 2026",
+        accountName: "Legacy Empowerment Group",
+        accountCurrency: "USD",
+        amountSpent: 13219.5,
+        impressions: 1200000,
+        reach: 980000,
+        frequency: 1.22,
+        clicksAll: 18500,
+        linkClicks: 9200,
+        ctrAll: 1.54,
+        ctrLink: 0.77,
+        cpm: 11.02,
+        cpcAll: 0.7146,
+        cpcLink: 1.4369,
+        leads: 589,
+        costPerLead: 22.44,
+      },
+      campaigns: [],
+      dailyPerformance: [
+        {
+          date: "2026-03-12",
+          label: "Mar 12",
+          amountSpent: 421.18,
+          leads: 19,
+          costPerLead: 22.17,
+        },
+        {
+          date: "2026-03-13",
+          label: "Mar 13",
+          amountSpent: 447.02,
+          leads: 21,
+          costPerLead: 21.29,
+        },
+      ],
+    }),
+  };
+});
+
 // ── Mock metaAdsFetcher ───────────────────────────────────────
 vi.mock("./metaAdsFetcher", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./metaAdsFetcher")>();

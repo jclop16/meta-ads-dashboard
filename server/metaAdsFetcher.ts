@@ -1,5 +1,9 @@
 import { getDemoDailyPerformance, getDemoFetchedDataset } from "./demoData";
 import { ENV } from "./_core/env";
+import {
+  parseCampaignIdentity,
+  toShortName,
+} from "./reportingAnalysis";
 
 export const DATE_PRESETS = [
   { preset: "last_30d", label: "Last 30 Days", isPartial: false },
@@ -114,6 +118,11 @@ export interface NormalizedCampaignEntity {
   accountId: string;
   name: string;
   shortName: string;
+  displayName: string;
+  editorCode: string | null;
+  campaignDescriptor: string | null;
+  launchLabel: string | null;
+  audienceDescriptor: string | null;
   objective: string;
   status: string | null;
   effectiveStatus: string | null;
@@ -165,6 +174,8 @@ export interface NormalizedMetaDataset {
   campaignFacts: NormalizedCampaignFact[];
   adsetFacts: NormalizedAdsetFact[];
   adFacts: NormalizedAdFact[];
+  availableDataSince: string | null;
+  availableDataUntil: string | null;
   sourceMode: "live" | "demo";
   fetchedAt: Date;
 }
@@ -233,12 +244,15 @@ type MetaAdNode = {
   };
 };
 
+export type NormalizedSyncMode = "hot" | "reconcile";
+
 const DAY_LABEL_FORMATTER = new Intl.DateTimeFormat("en-US", {
   month: "short",
   day: "numeric",
   timeZone: "UTC",
 });
-const NORMALIZED_FACT_LOOKBACK_DAYS = 90;
+export const HOT_FACT_LOOKBACK_DAYS = 45;
+export const RECONCILIATION_FACT_LOOKBACK_DAYS = 365;
 const FACT_WINDOW_DAYS = {
   campaign: 30,
   adset: 21,
@@ -330,15 +344,6 @@ function safeInt(value: string | undefined) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function toShortName(name: string) {
-  return name
-    .replace(/\[.*?\]/g, "")
-    .replace(/\|.*$/, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 60);
-}
-
 function inferObjective(name: string) {
   const lower = name.toLowerCase();
 
@@ -384,16 +389,19 @@ function formatIsoDate(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
-function buildRollingTimeWindows(totalDays: number, windowDays: number) {
-  const today = startOfUtcDay(new Date());
-  const firstDay = addUtcDays(today, -(totalDays - 1));
+function buildTimeWindowsForRange(
+  sinceDate: Date,
+  untilDate: Date,
+  windowDays: number
+) {
   const windows: Array<{ since: string; until: string }> = [];
-  let cursor = firstDay;
+  let cursor = startOfUtcDay(sinceDate);
+  const finalDay = startOfUtcDay(untilDate);
 
-  while (cursor.getTime() <= today.getTime()) {
+  while (cursor.getTime() <= finalDay.getTime()) {
     const candidateUntil = addUtcDays(cursor, windowDays - 1);
     const until =
-      candidateUntil.getTime() <= today.getTime() ? candidateUntil : today;
+      candidateUntil.getTime() <= finalDay.getTime() ? candidateUntil : finalDay;
 
     windows.push({
       since: formatIsoDate(cursor),
@@ -674,7 +682,26 @@ async function fetchAdMetadata() {
   );
 }
 
-async function fetchRollingDailyInsights(level: "campaign" | "adset" | "ad") {
+function resolveNormalizedRange(mode: NormalizedSyncMode) {
+  const today = startOfUtcDay(new Date());
+
+  if (mode === "reconcile") {
+    return {
+      since: addUtcDays(today, -(RECONCILIATION_FACT_LOOKBACK_DAYS - 1)),
+      until: addUtcDays(today, -HOT_FACT_LOOKBACK_DAYS),
+    };
+  }
+
+  return {
+    since: addUtcDays(today, -(HOT_FACT_LOOKBACK_DAYS - 1)),
+    until: today,
+  };
+}
+
+async function fetchRollingDailyInsights(
+  level: "campaign" | "adset" | "ad",
+  mode: NormalizedSyncMode
+) {
   const fields =
     level === "campaign"
       ? INSIGHTS_FIELDS
@@ -683,8 +710,13 @@ async function fetchRollingDailyInsights(level: "campaign" | "adset" | "ad") {
         : AD_INSIGHTS_FIELDS;
 
   const rows: MetaInsightRow[] = [];
-  const windows = buildRollingTimeWindows(
-    NORMALIZED_FACT_LOOKBACK_DAYS,
+  const range = resolveNormalizedRange(mode);
+  if (range.until.getTime() < range.since.getTime()) {
+    return rows;
+  }
+  const windows = buildTimeWindowsForRange(
+    range.since,
+    range.until,
     FACT_WINDOW_DAYS[level]
   );
 
@@ -871,6 +903,8 @@ function buildDemoNormalizedDataset(): NormalizedMetaDataset {
       campaignFacts: [],
       adsetFacts: [],
       adFacts: [],
+      availableDataSince: null,
+      availableDataUntil: null,
       sourceMode: "demo",
       fetchedAt: new Date(),
     };
@@ -905,15 +939,24 @@ function buildDemoNormalizedDataset(): NormalizedMetaDataset {
     primary.account.leads > 0 ? campaign.leads / primary.account.leads : 0
   );
 
-  const campaigns: NormalizedCampaignEntity[] = primary.campaigns.map(campaign => ({
-    id: campaign.campaignId,
-    accountId,
-    name: campaign.campaignName,
-    shortName: campaign.shortName,
-    objective: campaign.objective,
-    status: "ACTIVE",
-    effectiveStatus: "ACTIVE",
-  }));
+  const campaigns: NormalizedCampaignEntity[] = primary.campaigns.map(campaign => {
+    const identity = parseCampaignIdentity(campaign.campaignName);
+
+    return {
+      id: campaign.campaignId,
+      accountId,
+      name: campaign.campaignName,
+      shortName: identity.shortName,
+      displayName: identity.displayName,
+      editorCode: identity.editorCode,
+      campaignDescriptor: identity.campaignDescriptor,
+      launchLabel: identity.launchLabel,
+      audienceDescriptor: identity.audienceDescriptor,
+      objective: campaign.objective,
+      status: "ACTIVE",
+      effectiveStatus: "ACTIVE",
+    };
+  });
 
   const adsets: NormalizedAdsetEntity[] = primary.campaigns.map(campaign => ({
     id: `${campaign.campaignId}-adset-1`,
@@ -1007,6 +1050,8 @@ function buildDemoNormalizedDataset(): NormalizedMetaDataset {
     campaignFacts,
     adsetFacts,
     adFacts,
+    availableDataSince: dailyPoints[0]?.date ?? null,
+    availableDataUntil: dailyPoints.at(-1)?.date ?? null,
     sourceMode: "demo",
     fetchedAt: new Date(),
   };
@@ -1032,11 +1077,12 @@ export async function fetchSnapshotForPreset(
     const leads = parseLeads(row);
     const amountSpent = safeFloat(row.spend);
     const costPerLead = leads > 0 ? amountSpent / leads : null;
+    const identity = parseCampaignIdentity(row.campaign_name ?? "");
 
     return {
       campaignId: row.campaign_id ?? "",
       campaignName: row.campaign_name ?? "",
-      shortName: toShortName(row.campaign_name ?? ""),
+      shortName: identity.displayName,
       objective: inferObjective(row.campaign_name ?? ""),
       status: "moderate",
       amountSpent,
@@ -1145,7 +1191,11 @@ export async function fetchDailyPerformance(): Promise<{
   };
 }
 
-export async function fetchNormalizedReportData(): Promise<NormalizedMetaDataset> {
+export async function fetchNormalizedReportData(input?: {
+  mode?: NormalizedSyncMode;
+}): Promise<NormalizedMetaDataset> {
+  const mode = input?.mode ?? "hot";
+
   if (!isMetaApiConfigured()) {
     return buildDemoNormalizedDataset();
   }
@@ -1174,21 +1224,21 @@ export async function fetchNormalizedReportData(): Promise<NormalizedMetaDataset
           }`
         );
       }),
-      fetchRollingDailyInsights("campaign").catch(error => {
+      fetchRollingDailyInsights("campaign", mode).catch(error => {
         throw new Error(
           `Normalized campaign fact ingestion failed: ${
             error instanceof Error ? error.message : "Unknown error"
           }`
         );
       }),
-      fetchRollingDailyInsights("adset").catch(error => {
+      fetchRollingDailyInsights("adset", mode).catch(error => {
         throw new Error(
           `Normalized ad set fact ingestion failed: ${
             error instanceof Error ? error.message : "Unknown error"
           }`
         );
       }),
-      fetchRollingDailyInsights("ad").catch(error => {
+      fetchRollingDailyInsights("ad", mode).catch(error => {
         throw new Error(
           `Normalized ad fact ingestion failed: ${
             error instanceof Error ? error.message : "Unknown error"
@@ -1197,15 +1247,24 @@ export async function fetchNormalizedReportData(): Promise<NormalizedMetaDataset
       }),
     ]);
 
-  const campaigns: NormalizedCampaignEntity[] = campaignNodes.map(node => ({
-    id: node.id,
-    accountId: account.id,
-    name: node.name ?? node.id,
-    shortName: toShortName(node.name ?? node.id),
-    objective: node.objective ?? inferObjective(node.name ?? ""),
-    status: node.status ?? null,
-    effectiveStatus: node.effective_status ?? null,
-  }));
+  const campaigns: NormalizedCampaignEntity[] = campaignNodes.map(node => {
+    const identity = parseCampaignIdentity(node.name ?? node.id);
+
+    return {
+      id: node.id,
+      accountId: account.id,
+      name: node.name ?? node.id,
+      shortName: identity.shortName,
+      displayName: identity.displayName,
+      editorCode: identity.editorCode,
+      campaignDescriptor: identity.campaignDescriptor,
+      launchLabel: identity.launchLabel,
+      audienceDescriptor: identity.audienceDescriptor,
+      objective: node.objective ?? inferObjective(node.name ?? ""),
+      status: node.status ?? null,
+      effectiveStatus: node.effective_status ?? null,
+    };
+  });
 
   const adsets: NormalizedAdsetEntity[] = adsetNodes
     .filter(node => node.campaign_id)
@@ -1234,14 +1293,32 @@ export async function fetchNormalizedReportData(): Promise<NormalizedMetaDataset
       creativeName: node.creative?.name ?? null,
     }));
 
+  const availableFacts = buildCampaignFacts(account.id, campaignRows);
+  const availableDataSince =
+    availableFacts.length > 0
+      ? availableFacts.reduce(
+          (earliest, fact) => (fact.date < earliest ? fact.date : earliest),
+          availableFacts[0].date
+        )
+      : null;
+  const availableDataUntil =
+    availableFacts.length > 0
+      ? availableFacts.reduce(
+          (latest, fact) => (fact.date > latest ? fact.date : latest),
+          availableFacts[0].date
+        )
+      : null;
+
   return {
     account,
     campaigns,
     adsets,
     ads,
-    campaignFacts: buildCampaignFacts(account.id, campaignRows),
+    campaignFacts: availableFacts,
     adsetFacts: buildAdsetFacts(account.id, adsetRows),
     adFacts: buildAdFacts(account.id, adRows),
+    availableDataSince,
+    availableDataUntil,
     sourceMode: "live",
     fetchedAt: new Date(),
   };

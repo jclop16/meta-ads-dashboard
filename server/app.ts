@@ -90,9 +90,12 @@ export async function handleInternalRefreshRequest(
   }
 
   try {
+    const requestedMode =
+      request.query?.mode === "reconcile" ? "reconcile" : "hot";
     const result = await runDashboardRefresh({
       trigger: "scheduled",
       userId: null,
+      mode: requestedMode,
     });
 
     response.status(200).json({

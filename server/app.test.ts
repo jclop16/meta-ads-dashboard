@@ -114,6 +114,7 @@ describe("/api/internal/refresh", () => {
       })
     );
     expect(vi.mocked(runDashboardRefresh)).toHaveBeenCalledWith({
+      mode: "hot",
       trigger: "scheduled",
       userId: null,
     });

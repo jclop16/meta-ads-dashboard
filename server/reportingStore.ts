@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { format, parseISO, subDays } from "date-fns";
 import {
   metaAccounts,
@@ -8,6 +8,8 @@ import {
   metaAdsets,
   metaCampaignDailyFacts,
   metaCampaigns,
+  recommendationItems,
+  recommendationRuns,
   type MetaAccount,
   type MetaAd,
   type MetaAdDailyFact,
@@ -17,11 +19,8 @@ import {
   type MetaCampaignDailyFact,
 } from "../drizzle/schema";
 import {
-  buildCampaignRecommendation,
   formatReportDateRange,
-  getCampaignStatus,
   normalizeObjective,
-  type ActionSignalRow,
 } from "./dashboardLogic";
 import { getDb } from "./db";
 import {
@@ -37,6 +36,15 @@ import {
   type NormalizedCampaignFact,
   type NormalizedMetaDataset,
 } from "./metaAdsFetcher";
+import {
+  buildRecommendationItems,
+  computePercentDelta,
+  evaluatePerformance,
+  parseCampaignIdentity,
+  type PerformanceStatus,
+  type RecommendationItemDraft,
+  type RecommendationSignal,
+} from "./reportingAnalysis";
 
 export const EXPLORER_DATE_PRESETS = [
   "today",
@@ -89,13 +97,26 @@ type ExplorerRange = {
   label: string;
 };
 
+type ExplorerDeltaFields = {
+  amountSpentDeltaPct: number | null;
+  leadsDeltaPct: number | null;
+  costPerLeadDeltaPct: number | null;
+  ctrLinkDeltaPct: number | null;
+};
+
 type ExplorerCampaignRow = {
   id: string;
   name: string;
   shortName: string;
+  displayName: string;
+  editorCode: string | null;
+  campaignDescriptor: string | null;
+  launchLabel: string | null;
+  audienceDescriptor: string | null;
   objective: string;
   deliveryStatus: string | null;
-  performanceStatus: ReturnType<typeof getCampaignStatus>;
+  performanceStatus: PerformanceStatus;
+  performanceScore: number;
   amountSpent: number;
   impressions: number;
   reach: number;
@@ -110,16 +131,21 @@ type ExplorerCampaignRow = {
   leads: number;
   costPerLead: number | null;
   recommendation: string;
-};
+} & ExplorerDeltaFields;
 
 type ExplorerAdsetRow = {
   id: string;
   campaignId: string;
   name: string;
+  campaignDisplayName: string;
+  editorCode: string | null;
+  launchLabel: string | null;
+  audienceDescriptor: string | null;
   deliveryStatus: string | null;
   optimizationGoal: string | null;
   billingEvent: string | null;
-  performanceStatus: ReturnType<typeof getCampaignStatus>;
+  performanceStatus: PerformanceStatus;
+  performanceScore: number;
   amountSpent: number;
   impressions: number;
   reach: number;
@@ -134,17 +160,22 @@ type ExplorerAdsetRow = {
   leads: number;
   costPerLead: number | null;
   recommendation: string;
-};
+} & ExplorerDeltaFields;
 
 type ExplorerAdRow = {
   id: string;
   campaignId: string;
   adsetId: string;
   name: string;
+  campaignDisplayName: string;
+  editorCode: string | null;
+  launchLabel: string | null;
+  audienceDescriptor: string | null;
   deliveryStatus: string | null;
   creativeId: string | null;
   creativeName: string | null;
-  performanceStatus: ReturnType<typeof getCampaignStatus>;
+  performanceStatus: PerformanceStatus;
+  performanceScore: number;
   amountSpent: number;
   impressions: number;
   reach: number;
@@ -159,9 +190,47 @@ type ExplorerAdRow = {
   leads: number;
   costPerLead: number | null;
   recommendation: string;
+} & ExplorerDeltaFields;
+
+type HomeCampaignRow = ExplorerCampaignRow;
+
+type HomeAccountMetrics = MetricsSummary & {
+  reportDateRange: string;
+  accountName: string;
+  accountCurrency: string;
+};
+
+type HomeDashboardView = {
+  range: ExplorerRange;
+  accountMetrics: HomeAccountMetrics;
+  campaigns: HomeCampaignRow[];
+  dailyPerformance: DailyPerformancePoint[];
 };
 
 let memoryStore: ReportingMemoryStore | null = null;
+
+function resolveCampaignIdentity(campaign: Pick<
+  MetaCampaign,
+  "name" | "shortName" | "displayName" | "editorCode" | "campaignDescriptor" | "launchLabel" | "audienceDescriptor"
+>) {
+  const parsed = parseCampaignIdentity(campaign.name);
+  const editorCode = campaign.editorCode ?? parsed.editorCode;
+  const campaignDescriptor = campaign.campaignDescriptor ?? parsed.campaignDescriptor;
+  const launchLabel = campaign.launchLabel ?? parsed.launchLabel;
+  const audienceDescriptor = campaign.audienceDescriptor ?? parsed.audienceDescriptor;
+  const displayName =
+    editorCode && campaignDescriptor
+      ? `${editorCode} | ${campaignDescriptor}`
+      : campaign.displayName || parsed.displayName || campaign.shortName || campaign.name;
+
+  return {
+    editorCode,
+    campaignDescriptor,
+    launchLabel,
+    audienceDescriptor,
+    displayName,
+  };
+}
 
 function isoToday() {
   return format(new Date(), "yyyy-MM-dd");
@@ -176,45 +245,81 @@ function normalizeDate(value: string | null | undefined, fallback: string) {
   }
 }
 
-function resolveExplorerRange(filters: ExplorerFilters): ExplorerRange {
+function buildPresetRange(preset: ExplorerDatePreset) {
   const today = isoToday();
-  let since = today;
-  let until = today;
-
-  switch (filters.preset) {
+  switch (preset) {
     case "today":
-      since = today;
-      until = today;
-      break;
-    case "yesterday":
-      since = format(subDays(new Date(), 1), "yyyy-MM-dd");
-      until = since;
-      break;
+      return { since: today, until: today };
+    case "yesterday": {
+      const since = format(subDays(new Date(), 1), "yyyy-MM-dd");
+      return { since, until: since };
+    }
     case "last_7d":
-      since = format(subDays(new Date(), 6), "yyyy-MM-dd");
-      until = today;
-      break;
+      return { since: format(subDays(new Date(), 6), "yyyy-MM-dd"), until: today };
     case "last_30d":
-      since = format(subDays(new Date(), 29), "yyyy-MM-dd");
-      until = today;
-      break;
+      return { since: format(subDays(new Date(), 29), "yyyy-MM-dd"), until: today };
     case "last_90d":
-      since = format(subDays(new Date(), 89), "yyyy-MM-dd");
-      until = today;
-      break;
+      return { since: format(subDays(new Date(), 89), "yyyy-MM-dd"), until: today };
     case "this_week_mon_today": {
       const date = new Date();
       const day = date.getDay();
       const offset = day === 0 ? 6 : day - 1;
-      since = format(subDays(date, offset), "yyyy-MM-dd");
-      until = today;
-      break;
+      return { since: format(subDays(date, offset), "yyyy-MM-dd"), until: today };
     }
     case "custom":
-      since = normalizeDate(filters.since, format(subDays(new Date(), 29), "yyyy-MM-dd"));
-      until = normalizeDate(filters.until, today);
-      break;
+      return { since: format(subDays(new Date(), 29), "yyyy-MM-dd"), until: today };
   }
+}
+
+function clampDate(value: string, minimum: string | null, maximum: string | null) {
+  let next = value;
+  if (minimum && next < minimum) {
+    next = minimum;
+  }
+  if (maximum && next > maximum) {
+    next = maximum;
+  }
+  return next;
+}
+
+function getAvailableDataWindow(dataset: ReportingMemoryStore | NormalizedMetaDataset) {
+  if (dataset.availableDataSince && dataset.availableDataUntil) {
+    return {
+      availableDataSince: dataset.availableDataSince,
+      availableDataUntil: dataset.availableDataUntil,
+    };
+  }
+
+  const dates = dataset.campaignFacts.map(fact => fact.date).sort();
+  return {
+    availableDataSince: dates[0] ?? null,
+    availableDataUntil: dates.at(-1) ?? null,
+  };
+}
+
+function resolveExplorerRange(
+  filters: ExplorerFilters,
+  availableWindow?: { availableDataSince: string | null; availableDataUntil: string | null }
+): ExplorerRange {
+  const presetRange = buildPresetRange(filters.preset);
+  const usesExplicitDates = Boolean(filters.since || filters.until);
+  let since = usesExplicitDates
+    ? normalizeDate(filters.since, presetRange.since)
+    : presetRange.since;
+  let until = usesExplicitDates
+    ? normalizeDate(filters.until, presetRange.until)
+    : presetRange.until;
+
+  since = clampDate(
+    since,
+    availableWindow?.availableDataSince ?? null,
+    availableWindow?.availableDataUntil ?? null
+  );
+  until = clampDate(
+    until,
+    availableWindow?.availableDataSince ?? null,
+    availableWindow?.availableDataUntil ?? null
+  );
 
   if (since > until) {
     const swap = since;
@@ -329,6 +434,50 @@ function aggregateFacts<
       }
     )
   );
+}
+
+function buildDeltaFields(current: MetricsSummary, previous: MetricsSummary): ExplorerDeltaFields {
+  return {
+    amountSpentDeltaPct: computePercentDelta(current.amountSpent, previous.amountSpent),
+    leadsDeltaPct: computePercentDelta(current.leads, previous.leads),
+    costPerLeadDeltaPct:
+      current.costPerLead != null && previous.costPerLead != null
+        ? computePercentDelta(current.costPerLead, previous.costPerLead)
+        : null,
+    ctrLinkDeltaPct: computePercentDelta(current.ctrLink, previous.ctrLink),
+  };
+}
+
+function buildRecommendationCopy(input: {
+  displayName: string;
+  performanceStatus: PerformanceStatus;
+  performanceScore: number;
+  amountSpent: number;
+  leads: number;
+  costPerLead: number | null;
+  ctrLink: number;
+  frequency: number;
+  cplTarget: number;
+  cplDeltaPct: number | null;
+}) {
+  if (input.amountSpent >= input.cplTarget * 2 && input.leads === 0) {
+    return "Spend is outpacing conversion signal. Pull budget back until a new angle or audience test is ready.";
+  }
+  if (input.performanceStatus === "excellent") {
+    return input.leads >= 15
+      ? "Performance is holding well above target. Scale in small steps while watching quality and frequency."
+      : "Efficiency is strong. Keep this as a benchmark and feed it better tests instead of heavy changes.";
+  }
+  if (input.ctrLink < 1.25) {
+    return "Click-through efficiency is soft. Refresh the hook and first-screen creative before adding budget.";
+  }
+  if (input.frequency > 2.8) {
+    return "Audience fatigue is building. Rotate creative or widen the audience before CPL drifts higher.";
+  }
+  if ((input.cplDeltaPct ?? 0) > 15) {
+    return "CPL is sliding versus the prior period. Audit delivery, targeting, and landing-page fit before scaling.";
+  }
+  return `Performance score ${input.performanceScore}/100. Keep spend measured while you isolate the next improvement lever.`;
 }
 
 function inRange(date: string, since: string, until: string) {
@@ -462,6 +611,11 @@ async function loadDataset(): Promise<ReportingMemoryStore | null> {
       accountId: row.accountId,
       name: row.name,
       shortName: row.shortName,
+      displayName: row.displayName,
+      editorCode: row.editorCode,
+      campaignDescriptor: row.campaignDescriptor,
+      launchLabel: row.launchLabel,
+      audienceDescriptor: row.audienceDescriptor,
       objective: row.objective,
       status: row.status,
       effectiveStatus: row.effectiveStatus,
@@ -490,6 +644,18 @@ async function loadDataset(): Promise<ReportingMemoryStore | null> {
     campaignFacts: campaignFacts.map(mapStoredCampaignFact),
     adsetFacts: adsetFacts.map(mapStoredAdsetFact),
     adFacts: adFacts.map(mapStoredAdFact),
+    availableDataSince: campaignFacts[0]
+      ? campaignFacts.reduce(
+          (earliest, row) => (row.date < earliest ? row.date : earliest),
+          campaignFacts[0].date
+        )
+      : null,
+    availableDataUntil: campaignFacts[0]
+      ? campaignFacts.reduce(
+          (latest, row) => (row.date > latest ? row.date : latest),
+          campaignFacts[0].date
+        )
+      : null,
     fetchedAt: account.updatedAt,
     sourceMode: "live",
   };
@@ -519,15 +685,19 @@ export async function persistNormalizedReportData(dataset: NormalizedMetaDataset
     },
   });
 
-  await db.delete(metaAdDailyFacts).where(eq(metaAdDailyFacts.accountId, dataset.account.id));
-  await db.delete(metaAdsetDailyFacts).where(eq(metaAdsetDailyFacts.accountId, dataset.account.id));
-  await db.delete(metaCampaignDailyFacts).where(eq(metaCampaignDailyFacts.accountId, dataset.account.id));
   await db.delete(metaAds).where(eq(metaAds.accountId, dataset.account.id));
   await db.delete(metaAdsets).where(eq(metaAdsets.accountId, dataset.account.id));
   await db.delete(metaCampaigns).where(eq(metaCampaigns.accountId, dataset.account.id));
 
   if (dataset.campaigns.length > 0) {
-    await db.insert(metaCampaigns).values(dataset.campaigns);
+    await db.insert(metaCampaigns).values(dataset.campaigns.map(campaign => ({
+      ...campaign,
+      displayName: campaign.displayName,
+      editorCode: campaign.editorCode,
+      campaignDescriptor: campaign.campaignDescriptor,
+      launchLabel: campaign.launchLabel,
+      audienceDescriptor: campaign.audienceDescriptor,
+    })));
   }
   if (dataset.adsets.length > 0) {
     await db.insert(metaAdsets).values(dataset.adsets);
@@ -535,6 +705,27 @@ export async function persistNormalizedReportData(dataset: NormalizedMetaDataset
   if (dataset.ads.length > 0) {
     await db.insert(metaAds).values(dataset.ads);
   }
+  const factWindowSince = dataset.availableDataSince;
+  const factWindowUntil = dataset.availableDataUntil;
+
+  if (factWindowSince && factWindowUntil) {
+    await db
+      .delete(metaAdDailyFacts)
+      .where(
+        sql`${metaAdDailyFacts.accountId} = ${dataset.account.id} and ${metaAdDailyFacts.date} >= ${factWindowSince} and ${metaAdDailyFacts.date} <= ${factWindowUntil}`
+      );
+    await db
+      .delete(metaAdsetDailyFacts)
+      .where(
+        sql`${metaAdsetDailyFacts.accountId} = ${dataset.account.id} and ${metaAdsetDailyFacts.date} >= ${factWindowSince} and ${metaAdsetDailyFacts.date} <= ${factWindowUntil}`
+      );
+    await db
+      .delete(metaCampaignDailyFacts)
+      .where(
+        sql`${metaCampaignDailyFacts.accountId} = ${dataset.account.id} and ${metaCampaignDailyFacts.date} >= ${factWindowSince} and ${metaCampaignDailyFacts.date} <= ${factWindowUntil}`
+      );
+  }
+
   if (dataset.campaignFacts.length > 0) {
     await db.insert(metaCampaignDailyFacts).values(
       dataset.campaignFacts.map(fact => ({
@@ -623,7 +814,18 @@ function filterCampaignEntities(
       campaign.status ??
       ""
     ).toLowerCase();
-    const name = `${campaign.name} ${campaign.shortName}`.toLowerCase();
+    const name = [
+      campaign.name,
+      campaign.shortName,
+      campaign.displayName,
+      campaign.editorCode,
+      campaign.campaignDescriptor,
+      campaign.launchLabel,
+      campaign.audienceDescriptor,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
 
     if (objective && campaign.objective.toLowerCase() !== objective) {
       return false;
@@ -639,50 +841,72 @@ function filterCampaignEntities(
 }
 
 function buildCampaignRows(
-  dataset: ReportingMemoryStore,
+  dataset: ReportingMemoryStore | NormalizedMetaDataset,
   filters: ExplorerFilters,
   range: ExplorerRange,
   cplTarget: number
 ): ExplorerCampaignRow[] {
   const eligibleCampaigns = filterCampaignEntities(dataset.campaigns, filters);
   const eligibleIds = new Set(eligibleCampaigns.map(campaign => campaign.id));
-  const grouped = new Map<string, NormalizedCampaignFact[]>();
+  const groupedCurrent = new Map<string, NormalizedCampaignFact[]>();
+  const groupedPrevious = new Map<string, NormalizedCampaignFact[]>();
 
   dataset.campaignFacts
-    .filter(
-      fact => eligibleIds.has(fact.campaignId) && inRange(fact.date, range.since, range.until)
-    )
+    .filter(fact => eligibleIds.has(fact.campaignId))
     .forEach(fact => {
-      const rows = grouped.get(fact.campaignId) ?? [];
-      rows.push(fact);
-      grouped.set(fact.campaignId, rows);
+      if (inRange(fact.date, range.since, range.until)) {
+        const rows = groupedCurrent.get(fact.campaignId) ?? [];
+        rows.push(fact);
+        groupedCurrent.set(fact.campaignId, rows);
+      } else if (inRange(fact.date, range.previousSince, range.previousUntil)) {
+        const rows = groupedPrevious.get(fact.campaignId) ?? [];
+        rows.push(fact);
+        groupedPrevious.set(fact.campaignId, rows);
+      }
     });
 
   return eligibleCampaigns
     .map(campaign => {
-      const metrics = aggregateFacts(grouped.get(campaign.id) ?? []);
-      const performanceStatus = getCampaignStatus(metrics.costPerLead, cplTarget);
+      const identity = resolveCampaignIdentity(campaign);
+      const metrics = aggregateFacts(groupedCurrent.get(campaign.id) ?? []);
+      const previousMetrics = aggregateFacts(groupedPrevious.get(campaign.id) ?? []);
+      const evaluation = evaluatePerformance({
+        amountSpent: metrics.amountSpent,
+        leads: metrics.leads,
+        ctrLink: metrics.ctrLink,
+        frequency: metrics.frequency,
+        costPerLead: metrics.costPerLead,
+        priorCostPerLead: previousMetrics.costPerLead,
+        cplTarget,
+      });
 
       return {
         id: campaign.id,
         name: campaign.name,
         shortName: campaign.shortName,
+        displayName: identity.displayName,
+        editorCode: identity.editorCode,
+        campaignDescriptor: identity.campaignDescriptor,
+        launchLabel: identity.launchLabel,
+        audienceDescriptor: identity.audienceDescriptor,
         objective: campaign.objective,
         deliveryStatus: campaign.effectiveStatus ?? campaign.status,
-        performanceStatus,
+        performanceStatus: evaluation.performanceStatus,
+        performanceScore: evaluation.performanceScore,
         ...metrics,
-        recommendation: buildCampaignRecommendation(
-          {
-            shortName: campaign.shortName,
-            amountSpent: metrics.amountSpent,
-            leads: metrics.leads,
-            linkClicks: metrics.linkClicks,
-            ctrLink: metrics.ctrLink,
-            frequency: metrics.frequency,
-            costPerLead: metrics.costPerLead,
-          },
-          cplTarget
-        ),
+        ...buildDeltaFields(metrics, previousMetrics),
+        recommendation: buildRecommendationCopy({
+          displayName: identity.displayName,
+          performanceStatus: evaluation.performanceStatus,
+          performanceScore: evaluation.performanceScore,
+          amountSpent: metrics.amountSpent,
+          leads: metrics.leads,
+          costPerLead: metrics.costPerLead,
+          ctrLink: metrics.ctrLink,
+          frequency: metrics.frequency,
+          cplTarget,
+          cplDeltaPct: evaluation.cplDeltaPct,
+        }),
       };
     })
     .filter(row => row.amountSpent > 0 || row.leads > 0 || row.impressions > 0)
@@ -690,7 +914,7 @@ function buildCampaignRows(
 }
 
 function buildAdsetRows(
-  dataset: ReportingMemoryStore,
+  dataset: ReportingMemoryStore | NormalizedMetaDataset,
   filters: ExplorerFilters,
   range: ExplorerRange,
   campaignId: string,
@@ -698,19 +922,22 @@ function buildAdsetRows(
 ): ExplorerAdsetRow[] {
   const eligibleCampaigns = filterCampaignEntities(dataset.campaigns, filters);
   const eligibleCampaignIds = new Set(eligibleCampaigns.map(campaign => campaign.id));
-  const grouped = new Map<string, NormalizedAdsetFact[]>();
+  const campaignMap = new Map(dataset.campaigns.map(campaign => [campaign.id, campaign]));
+  const groupedCurrent = new Map<string, NormalizedAdsetFact[]>();
+  const groupedPrevious = new Map<string, NormalizedAdsetFact[]>();
 
   dataset.adsetFacts
-    .filter(
-      fact =>
-        fact.campaignId === campaignId &&
-        eligibleCampaignIds.has(fact.campaignId) &&
-        inRange(fact.date, range.since, range.until)
-    )
+    .filter(fact => fact.campaignId === campaignId && eligibleCampaignIds.has(fact.campaignId))
     .forEach(fact => {
-      const rows = grouped.get(fact.adsetId) ?? [];
-      rows.push(fact);
-      grouped.set(fact.adsetId, rows);
+      if (inRange(fact.date, range.since, range.until)) {
+        const rows = groupedCurrent.get(fact.adsetId) ?? [];
+        rows.push(fact);
+        groupedCurrent.set(fact.adsetId, rows);
+      } else if (inRange(fact.date, range.previousSince, range.previousUntil)) {
+        const rows = groupedPrevious.get(fact.adsetId) ?? [];
+        rows.push(fact);
+        groupedPrevious.set(fact.adsetId, rows);
+      }
     });
 
   return dataset.adsets
@@ -729,30 +956,47 @@ function buildAdsetRows(
       return true;
     })
     .map(adset => {
-      const metrics = aggregateFacts(grouped.get(adset.id) ?? []);
-      const performanceStatus = getCampaignStatus(metrics.costPerLead, cplTarget);
+      const metrics = aggregateFacts(groupedCurrent.get(adset.id) ?? []);
+      const previousMetrics = aggregateFacts(groupedPrevious.get(adset.id) ?? []);
+      const evaluation = evaluatePerformance({
+        amountSpent: metrics.amountSpent,
+        leads: metrics.leads,
+        ctrLink: metrics.ctrLink,
+        frequency: metrics.frequency,
+        costPerLead: metrics.costPerLead,
+        priorCostPerLead: previousMetrics.costPerLead,
+        cplTarget,
+      });
+      const campaign = campaignMap.get(adset.campaignId);
+      const identity = campaign ? resolveCampaignIdentity(campaign) : null;
 
       return {
         id: adset.id,
         campaignId: adset.campaignId,
         name: adset.name,
+        campaignDisplayName: identity?.displayName ?? campaign?.shortName ?? adset.name,
+        editorCode: identity?.editorCode ?? null,
+        launchLabel: identity?.launchLabel ?? null,
+        audienceDescriptor: identity?.audienceDescriptor ?? null,
         deliveryStatus: adset.effectiveStatus ?? adset.status,
         optimizationGoal: adset.optimizationGoal,
         billingEvent: adset.billingEvent,
-        performanceStatus,
+        performanceStatus: evaluation.performanceStatus,
+        performanceScore: evaluation.performanceScore,
         ...metrics,
-        recommendation: buildCampaignRecommendation(
-          {
-            shortName: adset.name,
-            amountSpent: metrics.amountSpent,
-            leads: metrics.leads,
-            linkClicks: metrics.linkClicks,
-            ctrLink: metrics.ctrLink,
-            frequency: metrics.frequency,
-            costPerLead: metrics.costPerLead,
-          },
-          cplTarget
-        ),
+        ...buildDeltaFields(metrics, previousMetrics),
+        recommendation: buildRecommendationCopy({
+          displayName: adset.name,
+          performanceStatus: evaluation.performanceStatus,
+          performanceScore: evaluation.performanceScore,
+          amountSpent: metrics.amountSpent,
+          leads: metrics.leads,
+          costPerLead: metrics.costPerLead,
+          ctrLink: metrics.ctrLink,
+          frequency: metrics.frequency,
+          cplTarget,
+          cplDeltaPct: evaluation.cplDeltaPct,
+        }),
       };
     })
     .filter(row => row.amountSpent > 0 || row.leads > 0 || row.impressions > 0)
@@ -760,20 +1004,29 @@ function buildAdsetRows(
 }
 
 function buildAdRows(
-  dataset: ReportingMemoryStore,
+  dataset: ReportingMemoryStore | NormalizedMetaDataset,
   filters: ExplorerFilters,
   range: ExplorerRange,
   adsetId: string,
   cplTarget: number
 ): ExplorerAdRow[] {
-  const grouped = new Map<string, NormalizedAdFact[]>();
+  const groupedCurrent = new Map<string, NormalizedAdFact[]>();
+  const groupedPrevious = new Map<string, NormalizedAdFact[]>();
+  const adsetMap = new Map(dataset.adsets.map(adset => [adset.id, adset]));
+  const campaignMap = new Map(dataset.campaigns.map(campaign => [campaign.id, campaign]));
 
   dataset.adFacts
-    .filter(fact => fact.adsetId === adsetId && inRange(fact.date, range.since, range.until))
+    .filter(fact => fact.adsetId === adsetId)
     .forEach(fact => {
-      const rows = grouped.get(fact.adId) ?? [];
-      rows.push(fact);
-      grouped.set(fact.adId, rows);
+      if (inRange(fact.date, range.since, range.until)) {
+        const rows = groupedCurrent.get(fact.adId) ?? [];
+        rows.push(fact);
+        groupedCurrent.set(fact.adId, rows);
+      } else if (inRange(fact.date, range.previousSince, range.previousUntil)) {
+        const rows = groupedPrevious.get(fact.adId) ?? [];
+        rows.push(fact);
+        groupedPrevious.set(fact.adId, rows);
+      }
     });
 
   return dataset.ads
@@ -792,31 +1045,50 @@ function buildAdRows(
       return true;
     })
     .map(ad => {
-      const metrics = aggregateFacts(grouped.get(ad.id) ?? []);
-      const performanceStatus = getCampaignStatus(metrics.costPerLead, cplTarget);
+      const metrics = aggregateFacts(groupedCurrent.get(ad.id) ?? []);
+      const previousMetrics = aggregateFacts(groupedPrevious.get(ad.id) ?? []);
+      const evaluation = evaluatePerformance({
+        amountSpent: metrics.amountSpent,
+        leads: metrics.leads,
+        ctrLink: metrics.ctrLink,
+        frequency: metrics.frequency,
+        costPerLead: metrics.costPerLead,
+        priorCostPerLead: previousMetrics.costPerLead,
+        cplTarget,
+      });
+      const adset = adsetMap.get(ad.adsetId);
+      const campaign = campaignMap.get(ad.campaignId);
+      const identity = campaign ? resolveCampaignIdentity(campaign) : null;
 
       return {
         id: ad.id,
         campaignId: ad.campaignId,
         adsetId: ad.adsetId,
         name: ad.name,
+        campaignDisplayName:
+          identity?.displayName ?? adset?.name ?? campaign?.shortName ?? ad.name,
+        editorCode: identity?.editorCode ?? null,
+        launchLabel: identity?.launchLabel ?? null,
+        audienceDescriptor: identity?.audienceDescriptor ?? null,
         deliveryStatus: ad.effectiveStatus ?? ad.status,
         creativeId: ad.creativeId,
         creativeName: ad.creativeName,
-        performanceStatus,
+        performanceStatus: evaluation.performanceStatus,
+        performanceScore: evaluation.performanceScore,
         ...metrics,
-        recommendation: buildCampaignRecommendation(
-          {
-            shortName: ad.name,
-            amountSpent: metrics.amountSpent,
-            leads: metrics.leads,
-            linkClicks: metrics.linkClicks,
-            ctrLink: metrics.ctrLink,
-            frequency: metrics.frequency,
-            costPerLead: metrics.costPerLead,
-          },
-          cplTarget
-        ),
+        ...buildDeltaFields(metrics, previousMetrics),
+        recommendation: buildRecommendationCopy({
+          displayName: ad.name,
+          performanceStatus: evaluation.performanceStatus,
+          performanceScore: evaluation.performanceScore,
+          amountSpent: metrics.amountSpent,
+          leads: metrics.leads,
+          costPerLead: metrics.costPerLead,
+          ctrLink: metrics.ctrLink,
+          frequency: metrics.frequency,
+          cplTarget,
+          cplDeltaPct: evaluation.cplDeltaPct,
+        }),
       };
     })
     .filter(row => row.amountSpent > 0 || row.leads > 0 || row.impressions > 0)
@@ -826,14 +1098,15 @@ function buildAdRows(
 export async function buildAdsetActionSignals(
   filters: ExplorerFilters,
   cplTarget: number
-): Promise<ActionSignalRow[]> {
+): Promise<RecommendationSignal[]> {
   const dataset = await loadDataset();
 
   if (!dataset) {
     return [];
   }
 
-  const range = resolveExplorerRange(filters);
+  const range = resolveExplorerRange(filters, getAvailableDataWindow(dataset));
+  const campaignMap = new Map(dataset.campaigns.map(campaign => [campaign.id, campaign]));
 
   return dataset.adsets
     .map(adset => {
@@ -842,15 +1115,42 @@ export async function buildAdsetActionSignals(
           fact => fact.adsetId === adset.id && inRange(fact.date, range.since, range.until)
         )
       );
-
-      return {
-        shortName: adset.name,
+      const previousMetrics = aggregateFacts(
+        dataset.adsetFacts.filter(
+          fact =>
+            fact.adsetId === adset.id &&
+            inRange(fact.date, range.previousSince, range.previousUntil)
+        )
+      );
+      const evaluation = evaluatePerformance({
         amountSpent: metrics.amountSpent,
+        leads: metrics.leads,
         ctrLink: metrics.ctrLink,
         frequency: metrics.frequency,
         costPerLead: metrics.costPerLead,
-        status: getCampaignStatus(metrics.costPerLead, cplTarget),
-      } as ActionSignalRow;
+        priorCostPerLead: previousMetrics.costPerLead,
+        cplTarget,
+      });
+      const campaign = campaignMap.get(adset.campaignId);
+
+      return {
+        entityLevel: "adset" as const,
+        entityId: adset.id,
+        displayName: adset.name,
+        editorCode: campaign?.editorCode ?? null,
+        launchLabel: campaign?.launchLabel ?? null,
+        audienceDescriptor: campaign?.audienceDescriptor ?? null,
+        amountSpent: metrics.amountSpent,
+        leads: metrics.leads,
+        ctrLink: metrics.ctrLink,
+        frequency: metrics.frequency,
+        costPerLead: metrics.costPerLead,
+        priorCostPerLead: previousMetrics.costPerLead,
+        cplDeltaPct: evaluation.cplDeltaPct,
+        performanceScore: evaluation.performanceScore,
+        performanceStatus: evaluation.performanceStatus,
+        cplTarget,
+      } satisfies RecommendationSignal;
     })
     .filter(signal => Number(signal.amountSpent) > 0 || Number(signal.ctrLink) > 0);
 }
@@ -879,11 +1179,14 @@ export async function getExplorerSummary(filters: ExplorerFilters) {
       },
       availableObjectives: [] as string[],
       availableStatuses: [] as string[],
+      availableDataSince: null as string | null,
+      availableDataUntil: null as string | null,
       lastUpdatedAt: null as Date | null,
     };
   }
 
-  const range = resolveExplorerRange(filters);
+  const availableWindow = getAvailableDataWindow(dataset);
+  const range = resolveExplorerRange(filters, availableWindow);
   const eligibleCampaigns = filterCampaignEntities(dataset.campaigns, filters);
   const eligibleIds = new Set(eligibleCampaigns.map(campaign => campaign.id));
   const currentFacts = dataset.campaignFacts.filter(
@@ -907,26 +1210,13 @@ export async function getExplorerSummary(filters: ExplorerFilters) {
     current,
     previous,
     deltas: {
-      amountSpent:
-        previous.amountSpent > 0
-          ? Number(
-              (((current.amountSpent - previous.amountSpent) / previous.amountSpent) * 100).toFixed(2)
-            )
-          : null,
-      leads:
-        previous.leads > 0
-          ? Number((((current.leads - previous.leads) / previous.leads) * 100).toFixed(2))
-          : null,
+      amountSpent: computePercentDelta(current.amountSpent, previous.amountSpent),
+      leads: computePercentDelta(current.leads, previous.leads),
       costPerLead:
-        previous.costPerLead != null && previous.costPerLead > 0 && current.costPerLead != null
-          ? Number(
-              (((current.costPerLead - previous.costPerLead) / previous.costPerLead) * 100).toFixed(2)
-            )
+        current.costPerLead != null && previous.costPerLead != null
+          ? computePercentDelta(current.costPerLead, previous.costPerLead)
           : null,
-      ctrLink:
-        previous.ctrLink > 0
-          ? Number((((current.ctrLink - previous.ctrLink) / previous.ctrLink) * 100).toFixed(2))
-          : null,
+      ctrLink: computePercentDelta(current.ctrLink, previous.ctrLink),
     },
     counts: {
       campaigns: eligibleCampaigns.length,
@@ -943,6 +1233,8 @@ export async function getExplorerSummary(filters: ExplorerFilters) {
           .filter((value): value is string => Boolean(value))
       )
     ).sort(),
+    availableDataSince: availableWindow.availableDataSince,
+    availableDataUntil: availableWindow.availableDataUntil,
     lastUpdatedAt: dataset.fetchedAt,
   };
 }
@@ -957,7 +1249,12 @@ export async function getExplorerCampaignBreakdown(
     return [];
   }
 
-  return buildCampaignRows(dataset, filters, resolveExplorerRange(filters), cplTarget);
+  return buildCampaignRows(
+    dataset,
+    filters,
+    resolveExplorerRange(filters, getAvailableDataWindow(dataset)),
+    cplTarget
+  );
 }
 
 export async function getExplorerAdsetBreakdown(
@@ -974,7 +1271,7 @@ export async function getExplorerAdsetBreakdown(
   return buildAdsetRows(
     dataset,
     filters,
-    resolveExplorerRange(filters),
+    resolveExplorerRange(filters, getAvailableDataWindow(dataset)),
     campaignId,
     cplTarget
   );
@@ -991,7 +1288,13 @@ export async function getExplorerAdBreakdown(
     return [];
   }
 
-  return buildAdRows(dataset, filters, resolveExplorerRange(filters), adsetId, cplTarget);
+  return buildAdRows(
+    dataset,
+    filters,
+    resolveExplorerRange(filters, getAvailableDataWindow(dataset)),
+    adsetId,
+    cplTarget
+  );
 }
 
 export async function getExplorerTrendSeries(input: ExplorerFilters & {
@@ -1004,7 +1307,7 @@ export async function getExplorerTrendSeries(input: ExplorerFilters & {
     return [];
   }
 
-  const range = resolveExplorerRange(input);
+  const range = resolveExplorerRange(input, getAvailableDataWindow(dataset));
   const eligibleCampaigns = filterCampaignEntities(dataset.campaigns, input);
   const eligibleCampaignIds = new Set(eligibleCampaigns.map(campaign => campaign.id));
   const grouped = new Map<string, MetricsSummary>();
@@ -1054,6 +1357,217 @@ export async function getExplorerTrendSeries(input: ExplorerFilters & {
       label: format(parseISO(date), "MMM d"),
       ...metrics,
     }));
+}
+
+function buildDailyPerformanceSeries(
+  dataset: ReportingMemoryStore | NormalizedMetaDataset,
+  range: ExplorerRange
+) {
+  const grouped = new Map<string, NormalizedCampaignFact[]>();
+
+  dataset.campaignFacts
+    .filter(fact => inRange(fact.date, range.since, range.until))
+    .forEach(fact => {
+      const rows = grouped.get(fact.date) ?? [];
+      rows.push(fact);
+      grouped.set(fact.date, rows);
+    });
+
+  return Array.from(grouped.entries())
+    .sort((left, right) => left[0].localeCompare(right[0]))
+    .map(([date, facts]) => {
+      const metrics = aggregateFacts(facts);
+
+      return {
+        date,
+        label: format(parseISO(date), "MMM d"),
+        amountSpent: metrics.amountSpent,
+        leads: metrics.leads,
+        costPerLead: metrics.costPerLead,
+      } satisfies DailyPerformancePoint;
+    });
+}
+
+export function buildHomeDashboardViewFromDataset(
+  dataset: ReportingMemoryStore | NormalizedMetaDataset,
+  cplTarget: number
+): HomeDashboardView {
+  const availableWindow = getAvailableDataWindow(dataset);
+  const range = resolveExplorerRange(
+    {
+      preset: "last_30d",
+      since: null,
+      until: null,
+      objective: null,
+      status: null,
+      query: null,
+    },
+    availableWindow
+  );
+  const groupedCurrentFacts = dataset.campaignFacts.filter(fact =>
+    inRange(fact.date, range.since, range.until)
+  );
+  const current = aggregateFacts(groupedCurrentFacts);
+
+  return {
+    range,
+    accountMetrics: {
+      reportDateRange: range.label,
+      accountName: dataset.account.name,
+      accountCurrency: dataset.account.currency,
+      ...current,
+    },
+    campaigns: buildCampaignRows(
+      dataset,
+      {
+        preset: "last_30d",
+        since: range.since,
+        until: range.until,
+        objective: null,
+        status: null,
+        query: null,
+      },
+      range,
+      cplTarget
+    ),
+    dailyPerformance: buildDailyPerformanceSeries(dataset, range),
+  };
+}
+
+export async function getHomeDashboardView(cplTarget: number) {
+  const dataset = await loadDataset();
+
+  if (!dataset) {
+    const range = resolveExplorerRange({
+      preset: "last_30d",
+      since: null,
+      until: null,
+      objective: null,
+      status: null,
+      query: null,
+    });
+    return {
+      range,
+      accountMetrics: {
+        reportDateRange: range.label,
+        accountName: "Meta Ad Account",
+        accountCurrency: "USD",
+        ...zeroMetrics(),
+      },
+      campaigns: [] as HomeCampaignRow[],
+      dailyPerformance: [] as DailyPerformancePoint[],
+    };
+  }
+
+  return buildHomeDashboardViewFromDataset(dataset, cplTarget);
+}
+
+export function buildRecommendationItemsFromDataset(
+  dataset: ReportingMemoryStore | NormalizedMetaDataset,
+  cplTarget: number
+) {
+  const homeView = buildHomeDashboardViewFromDataset(dataset, cplTarget);
+  const campaignSignals: RecommendationSignal[] = homeView.campaigns.map(row => ({
+    entityLevel: "campaign",
+    entityId: row.id,
+    displayName: row.displayName,
+    editorCode: row.editorCode,
+    launchLabel: row.launchLabel,
+    audienceDescriptor: row.audienceDescriptor,
+    amountSpent: row.amountSpent,
+    leads: row.leads,
+    ctrLink: row.ctrLink,
+    frequency: row.frequency,
+    costPerLead: row.costPerLead,
+    priorCostPerLead:
+      row.costPerLead != null && row.costPerLeadDeltaPct != null
+        ? Number((row.costPerLead / (1 + row.costPerLeadDeltaPct / 100)).toFixed(4))
+        : null,
+    cplDeltaPct: row.costPerLeadDeltaPct,
+    performanceScore: row.performanceScore,
+    performanceStatus: row.performanceStatus,
+    cplTarget,
+  }));
+
+  const adsetSignals = dataset.campaigns.flatMap(campaign =>
+    buildAdsetRows(
+      dataset,
+      {
+        preset: "last_30d",
+        since: homeView.range.since,
+        until: homeView.range.until,
+        objective: null,
+        status: null,
+        query: null,
+      },
+      homeView.range,
+      campaign.id,
+      cplTarget
+    ).map(row => ({
+      entityLevel: "adset" as const,
+      entityId: row.id,
+      displayName: row.name,
+      editorCode: row.editorCode,
+      launchLabel: row.launchLabel,
+      audienceDescriptor: row.audienceDescriptor,
+      amountSpent: row.amountSpent,
+      leads: row.leads,
+      ctrLink: row.ctrLink,
+      frequency: row.frequency,
+      costPerLead: row.costPerLead,
+      priorCostPerLead:
+        row.costPerLead != null && row.costPerLeadDeltaPct != null
+          ? Number((row.costPerLead / (1 + row.costPerLeadDeltaPct / 100)).toFixed(4))
+          : null,
+      cplDeltaPct: row.costPerLeadDeltaPct,
+      performanceScore: row.performanceScore,
+      performanceStatus: row.performanceStatus,
+      cplTarget,
+    }))
+  );
+
+  return buildRecommendationItems([...campaignSignals, ...adsetSignals]);
+}
+
+export async function persistRecommendationRun(input: {
+  accountId: string;
+  since: string;
+  until: string;
+  sourceMode: "live" | "demo";
+  items: RecommendationItemDraft[];
+}) {
+  const db = await getDb();
+
+  if (!db) {
+    return null;
+  }
+
+  const [insertResult] = await db.insert(recommendationRuns).values({
+    accountId: input.accountId,
+    dateRangeSince: input.since,
+    dateRangeUntil: input.until,
+    sourceMode: input.sourceMode,
+  });
+  const runId = (insertResult as { insertId: number }).insertId;
+
+  if (input.items.length > 0) {
+    await db.insert(recommendationItems).values(
+      input.items.map(item => ({
+        runId,
+        entityLevel: item.entityLevel,
+        entityId: item.entityId,
+        actionType: item.actionType,
+        headline: item.headline,
+        rationale: item.rationale,
+        confidenceScore: item.confidenceScore.toFixed(2),
+        expectedImpact: item.expectedImpact,
+        riskNote: item.riskNote,
+        status: item.status,
+      }))
+    );
+  }
+
+  return runId;
 }
 
 export async function buildLegacySnapshotFromNormalizedData(input: {

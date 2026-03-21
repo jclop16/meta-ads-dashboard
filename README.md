@@ -7,8 +7,10 @@ This baseline no longer depends on Manus. It supports:
 - Demo mode with in-memory data
 - Live Meta Graph API refreshes
 - Snapshot history for common reporting windows
-- Current dashboard tables derived from the latest refresh
-- Stored 30-day daily pacing series for trend analysis
+- Normalized account, campaign, ad set, and ad facts
+- Date-range driven Explorer with custom ranges and period comparisons
+- Current dashboard tables derived from normalized facts
+- Stored daily pacing series for trend analysis
 - Refresh-run audit logging for manual and scheduled syncs
 - Railway-ready production boot with Cloudflare in front
 
@@ -17,17 +19,19 @@ This baseline no longer depends on Manus. It supports:
 Current Production V1 capabilities:
 
 - Account KPI view for the active reporting window
-- Campaign breakdown with CPL-aware recommendations
+- Campaign, ad set, and ad drilldowns in the Explorer workspace
+- Campaign naming parsing with `Editor | Campaign` display labels
+- Composite performance scoring and deterministic recommendations
 - Objective-level budget mix and efficiency rollups
 - Action queue for scale, pause, and optimization decisions
 - Snapshot history for `last_30d`, `last_7d`, `this_week_mon_today`, `today`, and `yesterday`
-- 30-day daily spend and lead series persisted on refresh
+- Hot refresh for the trailing 45 days plus nightly historical reconciliation
 - Protected internal refresh endpoint for automation
 - Refresh health/status surface in the UI and `/api/health`
 
 Still not in scope yet:
 
-- Ad set, ad, and creative drilldowns
+- Creative-level drilldowns
 - CRM revenue attribution / ROAS / CAC / LTV stitching
 - Multi-account switching
 - User auth / roles
@@ -79,8 +83,11 @@ Any successful refresh will:
 - Pull the configured reporting windows from the Meta Graph API
 - Save/update the snapshot history
 - Replace the current account metrics, campaign table, and action items
-- Save the 30-day daily spend/lead series used by the home-page trend chart
+- Save/update normalized campaign, ad set, and ad daily facts
+- Save the normalized daily spend/lead series used by the home-page trend chart
 - Write a `refresh_runs` audit record for health checks and ops visibility
+
+Manual refresh and the 6-hour scheduled refresh run in `hot` mode, which refreshes the trailing 45 days. A separate nightly reconciliation workflow refreshes the older part of the 12-month reporting window.
 
 If a refresh partially saves data but any preset fails, the run is marked as failed and the UI surfaces the error state.
 
@@ -96,24 +103,26 @@ Before treating the environment as production-ready, use this as a testing check
 
 For the token, ensure the connected Meta user or system user has access to the ad account and the token includes at least `ads_read`.
 
-### CPL target
+### CPL target and status
 
-The CPL target control in the header updates how campaigns are graded:
+The CPL target control in the header updates the scoring model:
 
-- `excellent`: CPL is at or below target
-- `moderate`: CPL is above target but not severely inefficient
-- `poor`: CPL is materially above target
+- `excellent`: composite score `>= 75` and at least 5 leads
+- `moderate`: composite score `45–74`, or strong score with low lead volume
+- `poor`: composite score `< 45`, plus a hard poor override when spend is at least 2x target CPL with zero leads
 
-That target affects campaign status, recommendations, and the action queue.
+The score uses CPL vs target, lead volume, link CTR, frequency, and prior-period CPL trend. That target affects campaign status, recommendations, and the action queue.
 
-### Snapshot history
+### Explorer and snapshot history
+
+Use the `Explorer` view for custom date analysis, period-over-period comparisons, and drilldown from campaign to ad set to ad. Explorer is date-range driven: presets are shortcuts, but the actual query shape is `since`/`until`.
 
 Use the `History` view to inspect saved snapshots across the supported reporting windows. Refreshing the dashboard updates those snapshots in place.
 
 ## Persistence behavior
 
 - No `DATABASE_URL`: state is in memory only. Restarting the app resets it.
-- With `DATABASE_URL`: snapshots, dashboard state, settings, and daily performance rows persist.
+- With `DATABASE_URL`: snapshots, normalized reporting facts, recommendations, dashboard state, settings, and daily performance rows persist.
 
 After schema changes, run:
 
@@ -226,6 +235,17 @@ The workflow calls:
 
 ```text
 POST $APP_BASE_URL/api/internal/refresh
+Authorization: Bearer $REFRESH_API_KEY
+```
+
+### Nightly historical reconciliation
+
+The repo also includes [.github/workflows/nightly-reconciliation.yml](/Users/jclopez/Library/Mobile%20Documents/com~apple~CloudDocs/Work/FedLegacy/meta-ads-dashboard/.github/workflows/nightly-reconciliation.yml), which backfills and reconciles the older portion of the 12-month reporting window without replacing the current hot-refresh behavior.
+
+It calls:
+
+```text
+POST $APP_BASE_URL/api/internal/refresh?mode=reconcile
 Authorization: Bearer $REFRESH_API_KEY
 ```
 

@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Filter, Layers3, LineChart, Search, Target, Waypoints } from "lucide-react";
+import { CalendarRange, Download, Filter, Layers3, LineChart, Search, Target, Waypoints } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useCplTarget } from "@/contexts/CplTargetContext";
 import StatusBadge from "@/components/StatusBadge";
@@ -14,6 +14,70 @@ const PRESET_OPTIONS = [
   { value: "yesterday", label: "Yesterday" },
   { value: "custom", label: "Custom Range" },
 ] as const;
+
+function toIsoDate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function getPresetDates(preset: (typeof PRESET_OPTIONS)[number]["value"]) {
+  const today = new Date();
+  const end = new Date(today);
+
+  switch (preset) {
+    case "today":
+      return { since: toIsoDate(end), until: toIsoDate(end) };
+    case "yesterday": {
+      const yesterday = new Date(today);
+      yesterday.setDate(today.getDate() - 1);
+      return { since: toIsoDate(yesterday), until: toIsoDate(yesterday) };
+    }
+    case "last_7d": {
+      const start = new Date(today);
+      start.setDate(today.getDate() - 6);
+      return { since: toIsoDate(start), until: toIsoDate(end) };
+    }
+    case "last_90d": {
+      const start = new Date(today);
+      start.setDate(today.getDate() - 89);
+      return { since: toIsoDate(start), until: toIsoDate(end) };
+    }
+    case "this_week_mon_today": {
+      const start = new Date(today);
+      const day = start.getDay();
+      const offset = day === 0 ? 6 : day - 1;
+      start.setDate(today.getDate() - offset);
+      return { since: toIsoDate(start), until: toIsoDate(end) };
+    }
+    case "custom":
+    case "last_30d":
+    default: {
+      const start = new Date(today);
+      start.setDate(today.getDate() - 29);
+      return { since: toIsoDate(start), until: toIsoDate(end) };
+    }
+  }
+}
+
+function downloadCsv(filename: string, headers: string[], rows: Array<Array<string | number | null>>) {
+  const csv = [
+    headers.join(","),
+    ...rows.map(row =>
+      row
+        .map(value => {
+          const text = value == null ? "" : String(value);
+          return `"${text.replace(/"/g, '""')}"`;
+        })
+        .join(",")
+    ),
+  ].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
 function ExplorerTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
@@ -57,6 +121,35 @@ function formatCurrency(value: number) {
   })}`;
 }
 
+function parseDisplaySegments(rawName: string) {
+  const segments = rawName
+    .split("|")
+    .map(segment => segment.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+  return {
+    editorCode: segments[0] ?? null,
+    campaignDescriptor: segments[1] ?? null,
+  };
+}
+
+function getPreferredCampaignLabel(input: {
+  rawName: string;
+  displayName: string;
+  editorCode: string | null;
+  campaignDescriptor: string | null;
+}) {
+  const parsed = parseDisplaySegments(input.rawName);
+  const editorCode = input.editorCode ?? parsed.editorCode;
+  const campaignDescriptor = input.campaignDescriptor ?? parsed.campaignDescriptor;
+
+  if (editorCode && campaignDescriptor) {
+    return `${editorCode} | ${campaignDescriptor}`;
+  }
+
+  return input.displayName || input.rawName;
+}
+
 function FilterPill({
   label,
   value,
@@ -90,7 +183,7 @@ function SectionCard({
 }) {
   return (
     <section
-      className="rounded-2xl p-5"
+      className="min-w-0 rounded-2xl p-5"
       style={{
         background: "rgba(19,22,30,0.9)",
         border: "1px solid rgba(255,255,255,0.06)",
@@ -115,12 +208,27 @@ function SectionCard({
   );
 }
 
+function MiniTag({ label }: { label: string }) {
+  return (
+    <span
+      className="rounded-md px-2 py-0.5 text-[10px] font-mono"
+      style={{
+        background: "rgba(255,255,255,0.04)",
+        border: "1px solid rgba(255,255,255,0.06)",
+        color: "#94A3B8",
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
 export default function Explorer() {
   const { cplTarget } = useCplTarget();
   const [preset, setPreset] =
     useState<(typeof PRESET_OPTIONS)[number]["value"]>("last_30d");
-  const [since, setSince] = useState("");
-  const [until, setUntil] = useState("");
+  const [since, setSince] = useState(() => getPresetDates("last_30d").since);
+  const [until, setUntil] = useState(() => getPresetDates("last_30d").until);
   const [objective, setObjective] = useState("all");
   const [status, setStatus] = useState("all");
   const [query, setQuery] = useState("");
@@ -130,14 +238,24 @@ export default function Explorer() {
   const filters = useMemo(
     () => ({
       preset,
-      since: preset === "custom" ? since || null : null,
-      until: preset === "custom" ? until || null : null,
+      since: since || null,
+      until: until || null,
       objective: objective === "all" ? null : objective,
       status: status === "all" ? null : status,
       query: query.trim() || null,
     }),
     [objective, preset, query, since, status, until]
   );
+
+  useEffect(() => {
+    if (preset === "custom") {
+      return;
+    }
+
+    const next = getPresetDates(preset);
+    setSince(next.since);
+    setUntil(next.until);
+  }, [preset]);
 
   const { data: summaryData, isLoading: isSummaryLoading } =
     trpc.dashboard.explorerSummary.useQuery(filters);
@@ -180,27 +298,33 @@ export default function Explorer() {
   useEffect(() => {
     if (!campaignRows.length) {
       setSelectedCampaignId(null);
-      return;
-    }
-
-    if (!selectedCampaignId || !campaignRows.some(row => row.id === selectedCampaignId)) {
-      setSelectedCampaignId(campaignRows[0].id);
-    }
-  }, [campaignRows, selectedCampaignId]);
-
-  useEffect(() => {
-    if (!adsetRows.length) {
       setSelectedAdsetId(null);
       return;
     }
 
-    if (!selectedAdsetId || !adsetRows.some(row => row.id === selectedAdsetId)) {
-      setSelectedAdsetId(adsetRows[0].id);
+    if (selectedCampaignId && !campaignRows.some(row => row.id === selectedCampaignId)) {
+      setSelectedCampaignId(null);
+      setSelectedAdsetId(null);
     }
-  }, [adsetRows, selectedAdsetId]);
+  }, [campaignRows, selectedCampaignId]);
+
+  useEffect(() => {
+    if (!selectedCampaignId || !adsetRows.length) {
+      setSelectedAdsetId(null);
+      return;
+    }
+
+    if (selectedAdsetId && !adsetRows.some(row => row.id === selectedAdsetId)) {
+      setSelectedAdsetId(null);
+    }
+  }, [adsetRows, selectedAdsetId, selectedCampaignId]);
 
   const selectedCampaign = campaignRows.find(row => row.id === selectedCampaignId) ?? null;
   const selectedAdset = adsetRows.find(row => row.id === selectedAdsetId) ?? null;
+  const availableRangeLabel =
+    summaryData?.availableDataSince && summaryData?.availableDataUntil
+      ? `${summaryData.availableDataSince} to ${summaryData.availableDataUntil}`
+      : "Awaiting first historical sync";
 
   return (
     <div
@@ -264,11 +388,11 @@ export default function Explorer() {
       <main className="mx-auto flex max-w-[1440px] flex-col gap-6 px-4 py-6">
         <SectionCard
           title="Filters"
-          subtitle="The Explorer defaults to a current-period view with prior-period comparison. Custom range is optional."
+          subtitle="Preset buttons prefill the range, but explicit dates drive the reporting queries."
         >
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
             <label className="space-y-1 text-xs font-mono" style={{ color: "#64748B" }}>
-              <span className="inline-flex items-center gap-1"><Filter size={12} /> Date Preset</span>
+              <span className="inline-flex items-center gap-1"><Filter size={12} /> Date Shortcut</span>
               <select
                 className="w-full rounded-lg px-3 py-2 outline-none"
                 style={{
@@ -287,6 +411,46 @@ export default function Explorer() {
                   </option>
                 ))}
               </select>
+            </label>
+
+            <label className="space-y-1 text-xs font-mono" style={{ color: "#64748B" }}>
+              <span className="inline-flex items-center gap-1"><CalendarRange size={12} /> Start Date</span>
+              <input
+                type="date"
+                value={since}
+                min={summaryData?.availableDataSince ?? undefined}
+                max={until || (summaryData?.availableDataUntil ?? undefined)}
+                onChange={event => {
+                  setPreset("custom");
+                  setSince(event.target.value);
+                }}
+                className="w-full rounded-lg px-3 py-2 outline-none"
+                style={{
+                  background: "#0F172A",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  color: "#E2E8F0",
+                }}
+              />
+            </label>
+
+            <label className="space-y-1 text-xs font-mono" style={{ color: "#64748B" }}>
+              <span>End Date</span>
+              <input
+                type="date"
+                value={until}
+                min={since || (summaryData?.availableDataSince ?? undefined)}
+                max={summaryData?.availableDataUntil ?? undefined}
+                onChange={event => {
+                  setPreset("custom");
+                  setUntil(event.target.value);
+                }}
+                className="w-full rounded-lg px-3 py-2 outline-none"
+                style={{
+                  background: "#0F172A",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  color: "#E2E8F0",
+                }}
+              />
             </label>
 
             <label className="space-y-1 text-xs font-mono" style={{ color: "#64748B" }}>
@@ -346,38 +510,10 @@ export default function Explorer() {
               />
             </label>
 
-            {preset === "custom" ? (
-              <>
-                <label className="space-y-1 text-xs font-mono" style={{ color: "#64748B" }}>
-                  <span>Start Date</span>
-                  <input
-                    type="date"
-                    value={since}
-                    onChange={event => setSince(event.target.value)}
-                    className="w-full rounded-lg px-3 py-2 outline-none"
-                    style={{
-                      background: "#0F172A",
-                      border: "1px solid rgba(255,255,255,0.08)",
-                      color: "#E2E8F0",
-                    }}
-                  />
-                </label>
-                <label className="space-y-1 text-xs font-mono" style={{ color: "#64748B" }}>
-                  <span>End Date</span>
-                  <input
-                    type="date"
-                    value={until}
-                    onChange={event => setUntil(event.target.value)}
-                    className="w-full rounded-lg px-3 py-2 outline-none"
-                    style={{
-                      background: "#0F172A",
-                      border: "1px solid rgba(255,255,255,0.08)",
-                      color: "#E2E8F0",
-                    }}
-                  />
-                </label>
-              </>
-            ) : null}
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <FilterPill label="Available Data" value={availableRangeLabel} />
+            <FilterPill label="Current Shortcut" value={PRESET_OPTIONS.find(option => option.value === preset)?.label ?? preset} />
           </div>
         </SectionCard>
 
@@ -424,6 +560,7 @@ export default function Explorer() {
             <FilterPill label="Campaigns" value={summaryData?.counts.campaigns ?? 0} />
             <FilterPill label="Ad Sets" value={summaryData?.counts.adsets ?? 0} />
             <FilterPill label="Ads" value={summaryData?.counts.ads ?? 0} />
+            <FilterPill label="Stored Range" value={availableRangeLabel} />
             <FilterPill
               label="Updated"
               value={
@@ -445,15 +582,23 @@ export default function Explorer() {
             title="Trend"
             subtitle={
               selectedAdset
-                ? `${selectedAdset.name} · ad set scope`
+                ? `${selectedCampaign?.displayName ?? selectedAdset.campaignDisplayName} / ${selectedAdset.name}`
                 : selectedCampaign
-                  ? `${selectedCampaign.shortName} · campaign scope`
+                  ? `${selectedCampaign.displayName} · campaign scope`
                   : "Filtered account scope"
             }
           >
             <div className="mb-3 flex flex-wrap gap-2">
               <FilterPill label="Scope" value={trendLevel} />
               <FilterPill label="CPL Target" value={formatCurrency(cplTarget)} />
+              <FilterPill
+                label="Breadcrumb"
+                value={
+                  selectedAdset
+                    ? `${selectedCampaign?.displayName ?? "Campaign"} / ${selectedAdset.name}`
+                    : selectedCampaign?.displayName ?? "Account"
+                }
+              />
             </div>
 
             <div style={{ height: 280 }}>
@@ -522,11 +667,14 @@ export default function Explorer() {
 
           <SectionCard
             title="Selection Context"
-            subtitle="Click a campaign row to load its ad sets, then click an ad set to load its ads."
+            subtitle="The trend starts at filtered account scope. Click a campaign row to drill into ad sets, then an ad set to load ads."
           >
             <div className="grid gap-3">
-              <FilterPill label="Selected Campaign" value={selectedCampaign?.shortName ?? "None"} />
+              <FilterPill label="Selected Campaign" value={selectedCampaign?.displayName ?? "None"} />
               <FilterPill label="Selected Ad Set" value={selectedAdset?.name ?? "None"} />
+              <FilterPill label="Editor" value={selectedCampaign?.editorCode ?? selectedAdset?.editorCode ?? "—"} />
+              <FilterPill label="Launch" value={selectedCampaign?.launchLabel ?? selectedAdset?.launchLabel ?? "—"} />
+              <FilterPill label="Audience" value={selectedCampaign?.audienceDescriptor ?? selectedAdset?.audienceDescriptor ?? "—"} />
               <FilterPill
                 label="Current Campaign CPL"
                 value={
@@ -552,27 +700,101 @@ export default function Explorer() {
             title="Campaign Breakdown"
             subtitle="Primary list for filtered scope. Sorted by spend."
           >
+            <div className="mb-3 flex justify-end">
+              <button
+                type="button"
+                onClick={() =>
+                  downloadCsv(
+                    "campaign-breakdown.csv",
+                    [
+                      "Campaign",
+                      "Editor",
+                      "Launch",
+                      "Audience",
+                      "Objective",
+                      "Spend",
+                      "Spend Delta %",
+                      "Leads",
+                      "Leads Delta %",
+                      "CPL",
+                      "CPL Delta %",
+                      "CTR Link",
+                      "CTR Delta %",
+                      "Performance Score",
+                      "Status",
+                    ],
+                    campaignRows.map(row => [
+                      row.displayName,
+                      row.editorCode,
+                      row.launchLabel,
+                      row.audienceDescriptor,
+                      row.objective,
+                      row.amountSpent,
+                      row.amountSpentDeltaPct,
+                      row.leads,
+                      row.leadsDeltaPct,
+                      row.costPerLead,
+                      row.costPerLeadDeltaPct,
+                      row.ctrLink,
+                      row.ctrLinkDeltaPct,
+                      row.performanceScore,
+                      row.performanceStatus,
+                    ])
+                  )
+                }
+                className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-mono"
+                style={{
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                  color: "#CBD5E1",
+                }}
+              >
+                <Download size={12} />
+                Export CSV
+              </button>
+            </div>
             <DataTable
               icon={<Target size={13} />}
               loading={isCampaignsLoading}
-              headers={["Campaign", "Objective", "Spend", "Leads", "CPL", "Status"]}
+              headers={["Campaign", "Objective", "Spend", "Spend Δ", "Leads", "Leads Δ", "CPL", "CPL Δ", "CTR Δ", "Status"]}
+              tableMinWidthClassName="min-w-[1100px]"
               rows={campaignRows.map(row => ({
                 key: row.id,
                 selected: row.id === selectedCampaignId,
-                onClick: () => setSelectedCampaignId(row.id),
+                onClick: () => {
+                  if (row.id === selectedCampaignId) {
+                    setSelectedCampaignId(null);
+                    setSelectedAdsetId(null);
+                    return;
+                  }
+
+                  setSelectedCampaignId(row.id);
+                  setSelectedAdsetId(null);
+                },
                 cells: [
-                  <div>
+                  <div className="min-w-[16rem]">
                     <p className="font-semibold" style={{ color: "#F8FAFC" }}>
-                      {row.shortName}
+                      {getPreferredCampaignLabel({
+                        rawName: row.name,
+                        displayName: row.displayName,
+                        editorCode: row.editorCode,
+                        campaignDescriptor: row.campaignDescriptor,
+                      })}
                     </p>
-                    <p className="text-[11px] font-mono" style={{ color: "#475569" }}>
-                      {row.deliveryStatus ?? "Unknown"}
-                    </p>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {row.editorCode ? <MiniTag label={row.editorCode} /> : null}
+                      {row.launchLabel ? <MiniTag label={row.launchLabel} /> : null}
+                      {row.audienceDescriptor ? <MiniTag label={row.audienceDescriptor} /> : null}
+                    </div>
                   </div>,
                   row.objective,
                   formatCurrency(row.amountSpent),
+                  formatDelta(row.amountSpentDeltaPct ?? null),
                   row.leads.toLocaleString(),
+                  formatDelta(row.leadsDeltaPct ?? null),
                   row.costPerLead != null ? formatCurrency(row.costPerLead) : "N/A",
+                  formatDelta(row.costPerLeadDeltaPct ?? null, true),
+                  formatDelta(row.ctrLinkDeltaPct ?? null),
                   <StatusBadge status={row.performanceStatus} size="sm" />,
                 ],
               }))}
@@ -582,18 +804,20 @@ export default function Explorer() {
 
           <SectionCard
             title="Ad Set Breakdown"
-            subtitle={selectedCampaign ? `Scoped to ${selectedCampaign.shortName}` : "Select a campaign to inspect ad sets."}
+            subtitle={selectedCampaign ? `Scoped to ${selectedCampaign.displayName}` : "Select a campaign to inspect ad sets."}
           >
             <DataTable
               icon={<Layers3 size={13} />}
               loading={Boolean(selectedCampaignId) && isAdsetsLoading}
-              headers={["Ad Set", "Spend", "Leads", "CPL", "Status"]}
+              headers={["Ad Set", "Spend", "Spend Δ", "Leads", "Leads Δ", "CPL", "CPL Δ", "CTR Δ", "Status"]}
+              tableMinWidthClassName="min-w-[980px]"
               rows={adsetRows.map(row => ({
                 key: row.id,
                 selected: row.id === selectedAdsetId,
-                onClick: () => setSelectedAdsetId(row.id),
+                onClick: () =>
+                  setSelectedAdsetId(current => (current === row.id ? null : row.id)),
                 cells: [
-                  <div>
+                  <div className="min-w-[18rem]">
                     <p className="font-semibold" style={{ color: "#F8FAFC" }}>
                       {row.name}
                     </p>
@@ -602,8 +826,12 @@ export default function Explorer() {
                     </p>
                   </div>,
                   formatCurrency(row.amountSpent),
+                  formatDelta(row.amountSpentDeltaPct ?? null),
                   row.leads.toLocaleString(),
+                  formatDelta(row.leadsDeltaPct ?? null),
                   row.costPerLead != null ? formatCurrency(row.costPerLead) : "N/A",
+                  formatDelta(row.costPerLeadDeltaPct ?? null, true),
+                  formatDelta(row.ctrLinkDeltaPct ?? null),
                   <StatusBadge status={row.performanceStatus} size="sm" />,
                 ],
               }))}
@@ -622,11 +850,12 @@ export default function Explorer() {
             <DataTable
               icon={<Waypoints size={13} />}
               loading={Boolean(selectedAdsetId) && isAdsLoading}
-              headers={["Ad", "Spend", "Leads", "CPL", "Status"]}
+              headers={["Ad", "Spend", "Spend Δ", "Leads", "Leads Δ", "CPL", "CPL Δ", "CTR Δ", "Status"]}
+              tableMinWidthClassName="min-w-[1080px]"
               rows={adRows.map(row => ({
                 key: row.id,
                 cells: [
-                  <div>
+                  <div className="min-w-[20rem]">
                     <p className="font-semibold" style={{ color: "#F8FAFC" }}>
                       {row.name}
                     </p>
@@ -635,8 +864,12 @@ export default function Explorer() {
                     </p>
                   </div>,
                   formatCurrency(row.amountSpent),
+                  formatDelta(row.amountSpentDeltaPct ?? null),
                   row.leads.toLocaleString(),
+                  formatDelta(row.leadsDeltaPct ?? null),
                   row.costPerLead != null ? formatCurrency(row.costPerLead) : "N/A",
+                  formatDelta(row.costPerLeadDeltaPct ?? null, true),
+                  formatDelta(row.ctrLinkDeltaPct ?? null),
                   <StatusBadge status={row.performanceStatus} size="sm" />,
                 ],
               }))}
@@ -659,6 +892,7 @@ function DataTable({
   rows,
   loading,
   emptyLabel,
+  tableMinWidthClassName = "min-w-[960px]",
 }: {
   icon: ReactNode;
   headers: string[];
@@ -670,9 +904,10 @@ function DataTable({
   }>;
   loading: boolean;
   emptyLabel: string;
+  tableMinWidthClassName?: string;
 }) {
   return (
-    <div className="overflow-hidden rounded-xl border" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
+    <div className="max-w-full rounded-xl border" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
       <div
         className="flex items-center gap-2 border-b px-4 py-3 text-[11px] font-mono uppercase tracking-[0.18em]"
         style={{
@@ -685,8 +920,8 @@ function DataTable({
         Live Aggregation
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="min-w-full">
+      <div className="max-w-full overflow-x-auto overscroll-x-contain">
+        <table className={`w-full ${tableMinWidthClassName}`}>
           <thead>
             <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
               {headers.map(header => (
@@ -735,7 +970,7 @@ function DataTable({
                   {row.cells.map((cell, index) => (
                     <td
                       key={`${row.key}-${index}`}
-                      className="px-4 py-3 text-sm font-mono"
+                      className="px-4 py-3 align-top text-sm font-mono"
                       style={{ color: "#CBD5E1" }}
                     >
                       {cell}

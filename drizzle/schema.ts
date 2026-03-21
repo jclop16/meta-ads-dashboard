@@ -215,6 +215,11 @@ export const metaCampaigns = mysqlTable("meta_campaigns", {
   accountId: varchar("accountId", { length: 64 }).notNull(),
   name: text("name").notNull(),
   shortName: varchar("shortName", { length: 128 }).notNull(),
+  displayName: varchar("displayName", { length: 191 }).notNull(),
+  editorCode: varchar("editorCode", { length: 64 }),
+  campaignDescriptor: varchar("campaignDescriptor", { length: 191 }),
+  launchLabel: varchar("launchLabel", { length: 128 }),
+  audienceDescriptor: varchar("audienceDescriptor", { length: 191 }),
   objective: varchar("objective", { length: 64 }).notNull(),
   status: varchar("status", { length: 64 }),
   effectiveStatus: varchar("effectiveStatus", { length: 64 }),
@@ -351,3 +356,33 @@ export const metaAdDailyFacts = mysqlTable(
 );
 
 export type MetaAdDailyFact = typeof metaAdDailyFacts.$inferSelect;
+
+// ── Recommendation runs / items ────────────────────────────
+export const recommendationRuns = mysqlTable("recommendation_runs", {
+  id: int("id").autoincrement().primaryKey(),
+  accountId: varchar("accountId", { length: 64 }).notNull(),
+  dateRangeSince: varchar("dateRangeSince", { length: 16 }).notNull(),
+  dateRangeUntil: varchar("dateRangeUntil", { length: 16 }).notNull(),
+  sourceMode: mysqlEnum("sourceMode", ["live", "demo"]).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type RecommendationRun = typeof recommendationRuns.$inferSelect;
+
+export const recommendationItems = mysqlTable("recommendation_items", {
+  id: int("id").autoincrement().primaryKey(),
+  runId: int("runId").notNull(),
+  entityLevel: mysqlEnum("entityLevel", ["campaign", "adset"]).notNull(),
+  entityId: varchar("entityId", { length: 64 }).notNull(),
+  actionType: mysqlEnum("actionType", ["pause", "scale", "optimize", "test"]).notNull(),
+  headline: varchar("headline", { length: 255 }).notNull(),
+  rationale: text("rationale").notNull(),
+  confidenceScore: decimal("confidenceScore", { precision: 5, scale: 2 }).notNull(),
+  expectedImpact: text("expectedImpact").notNull(),
+  riskNote: text("riskNote").notNull(),
+  status: mysqlEnum("status", ["open", "accepted", "dismissed"]).notNull().default("open"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type RecommendationItem = typeof recommendationItems.$inferSelect;
