@@ -2,6 +2,7 @@ import {
   int,
   mysqlEnum,
   mysqlTable,
+  primaryKey,
   text,
   timestamp,
   varchar,
@@ -197,3 +198,156 @@ export const snapshotCampaigns = mysqlTable("snapshot_campaigns", {
 });
 
 export type SnapshotCampaign = typeof snapshotCampaigns.$inferSelect;
+
+// ── Normalized Meta entities ────────────────────────────────
+export const metaAccounts = mysqlTable("meta_accounts", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  currency: varchar("currency", { length: 8 }).notNull().default("USD"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type MetaAccount = typeof metaAccounts.$inferSelect;
+
+export const metaCampaigns = mysqlTable("meta_campaigns", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  accountId: varchar("accountId", { length: 64 }).notNull(),
+  name: text("name").notNull(),
+  shortName: varchar("shortName", { length: 128 }).notNull(),
+  objective: varchar("objective", { length: 64 }).notNull(),
+  status: varchar("status", { length: 64 }),
+  effectiveStatus: varchar("effectiveStatus", { length: 64 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type MetaCampaign = typeof metaCampaigns.$inferSelect;
+
+export const metaAdsets = mysqlTable("meta_adsets", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  accountId: varchar("accountId", { length: 64 }).notNull(),
+  campaignId: varchar("campaignId", { length: 64 }).notNull(),
+  name: text("name").notNull(),
+  status: varchar("status", { length: 64 }),
+  effectiveStatus: varchar("effectiveStatus", { length: 64 }),
+  optimizationGoal: varchar("optimizationGoal", { length: 64 }),
+  billingEvent: varchar("billingEvent", { length: 64 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type MetaAdset = typeof metaAdsets.$inferSelect;
+
+export const metaAds = mysqlTable("meta_ads", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  accountId: varchar("accountId", { length: 64 }).notNull(),
+  campaignId: varchar("campaignId", { length: 64 }).notNull(),
+  adsetId: varchar("adsetId", { length: 64 }).notNull(),
+  name: text("name").notNull(),
+  status: varchar("status", { length: 64 }),
+  effectiveStatus: varchar("effectiveStatus", { length: 64 }),
+  creativeId: varchar("creativeId", { length: 64 }),
+  creativeName: text("creativeName"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type MetaAd = typeof metaAds.$inferSelect;
+
+// ── Normalized daily fact tables ────────────────────────────
+export const metaCampaignDailyFacts = mysqlTable(
+  "meta_campaign_daily_facts",
+  {
+    accountId: varchar("accountId", { length: 64 }).notNull(),
+    campaignId: varchar("campaignId", { length: 64 }).notNull(),
+    date: varchar("date", { length: 16 }).notNull(),
+    amountSpent: decimal("amountSpent", { precision: 12, scale: 2 }).notNull(),
+    impressions: int("impressions").notNull(),
+    reach: int("reach").notNull(),
+    frequency: decimal("frequency", { precision: 8, scale: 4 }).notNull(),
+    clicksAll: int("clicksAll").notNull(),
+    linkClicks: int("linkClicks").notNull(),
+    ctrAll: decimal("ctrAll", { precision: 8, scale: 4 }).notNull(),
+    ctrLink: decimal("ctrLink", { precision: 8, scale: 4 }).notNull(),
+    cpm: decimal("cpm", { precision: 10, scale: 4 }).notNull(),
+    cpcAll: decimal("cpcAll", { precision: 10, scale: 4 }).notNull(),
+    cpcLink: decimal("cpcLink", { precision: 10, scale: 4 }).notNull(),
+    leads: int("leads").notNull(),
+    costPerLead: decimal("costPerLead", { precision: 10, scale: 4 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    pk: primaryKey({
+      columns: [table.accountId, table.campaignId, table.date],
+    }),
+  })
+);
+
+export type MetaCampaignDailyFact = typeof metaCampaignDailyFacts.$inferSelect;
+
+export const metaAdsetDailyFacts = mysqlTable(
+  "meta_adset_daily_facts",
+  {
+    accountId: varchar("accountId", { length: 64 }).notNull(),
+    campaignId: varchar("campaignId", { length: 64 }).notNull(),
+    adsetId: varchar("adsetId", { length: 64 }).notNull(),
+    date: varchar("date", { length: 16 }).notNull(),
+    amountSpent: decimal("amountSpent", { precision: 12, scale: 2 }).notNull(),
+    impressions: int("impressions").notNull(),
+    reach: int("reach").notNull(),
+    frequency: decimal("frequency", { precision: 8, scale: 4 }).notNull(),
+    clicksAll: int("clicksAll").notNull(),
+    linkClicks: int("linkClicks").notNull(),
+    ctrAll: decimal("ctrAll", { precision: 8, scale: 4 }).notNull(),
+    ctrLink: decimal("ctrLink", { precision: 8, scale: 4 }).notNull(),
+    cpm: decimal("cpm", { precision: 10, scale: 4 }).notNull(),
+    cpcAll: decimal("cpcAll", { precision: 10, scale: 4 }).notNull(),
+    cpcLink: decimal("cpcLink", { precision: 10, scale: 4 }).notNull(),
+    leads: int("leads").notNull(),
+    costPerLead: decimal("costPerLead", { precision: 10, scale: 4 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    pk: primaryKey({
+      columns: [table.accountId, table.adsetId, table.date],
+    }),
+  })
+);
+
+export type MetaAdsetDailyFact = typeof metaAdsetDailyFacts.$inferSelect;
+
+export const metaAdDailyFacts = mysqlTable(
+  "meta_ad_daily_facts",
+  {
+    accountId: varchar("accountId", { length: 64 }).notNull(),
+    campaignId: varchar("campaignId", { length: 64 }).notNull(),
+    adsetId: varchar("adsetId", { length: 64 }).notNull(),
+    adId: varchar("adId", { length: 64 }).notNull(),
+    date: varchar("date", { length: 16 }).notNull(),
+    amountSpent: decimal("amountSpent", { precision: 12, scale: 2 }).notNull(),
+    impressions: int("impressions").notNull(),
+    reach: int("reach").notNull(),
+    frequency: decimal("frequency", { precision: 8, scale: 4 }).notNull(),
+    clicksAll: int("clicksAll").notNull(),
+    linkClicks: int("linkClicks").notNull(),
+    ctrAll: decimal("ctrAll", { precision: 8, scale: 4 }).notNull(),
+    ctrLink: decimal("ctrLink", { precision: 8, scale: 4 }).notNull(),
+    cpm: decimal("cpm", { precision: 10, scale: 4 }).notNull(),
+    cpcAll: decimal("cpcAll", { precision: 10, scale: 4 }).notNull(),
+    cpcLink: decimal("cpcLink", { precision: 10, scale: 4 }).notNull(),
+    leads: int("leads").notNull(),
+    costPerLead: decimal("costPerLead", { precision: 10, scale: 4 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    pk: primaryKey({
+      columns: [table.accountId, table.adId, table.date],
+    }),
+  })
+);
+
+export type MetaAdDailyFact = typeof metaAdDailyFacts.$inferSelect;

@@ -1,17 +1,28 @@
 import { ENV } from "./_core/env";
-import { DEFAULT_CPL_TARGET } from "./dashboardLogic";
+import {
+  DEFAULT_CPL_TARGET,
+  buildActionItems,
+  buildCurrentCampaignRows,
+} from "./dashboardLogic";
 import {
   createRefreshRun,
   finishRefreshRun,
+  getAllActionItems,
   getSetting,
+  replaceActionItemsData,
   replaceCurrentDashboardData,
   replaceDailyPerformance,
   saveSnapshot,
 } from "./db";
 import {
   fetchAllSnapshots,
-  fetchDailyPerformance,
+  fetchNormalizedReportData,
 } from "./metaAdsFetcher";
+import {
+  buildAdsetActionSignals,
+  buildLegacyDailyPerformanceFromNormalizedData,
+  persistNormalizedReportData,
+} from "./reportingStore";
 
 export type RefreshTrigger = "manual" | "scheduled";
 
@@ -63,9 +74,19 @@ export async function runDashboardRefresh(input: {
   let accountId = ENV.metaAdAccountId || null;
 
   try {
-    const [{ account, snapshots, sourceMode: snapshotSourceMode }, dailyPerformance] =
-      await Promise.all([fetchAllSnapshots(), fetchDailyPerformance()]);
+    const [
+      { account, snapshots, sourceMode: snapshotSourceMode },
+      normalizedDataset,
+      existingActionItems,
+    ] = await Promise.all([
+      fetchAllSnapshots(),
+      fetchNormalizedReportData(),
+      getAllActionItems(),
+    ]);
     const cplTarget = await resolveCplTarget(input.userId ?? null);
+    const completedByTitle = new Map(
+      existingActionItems.map(item => [item.title, item.completed])
+    );
 
     sourceMode = snapshotSourceMode;
     accountName = account.name;
@@ -88,8 +109,23 @@ export async function runDashboardRefresh(input: {
       throw new Error("Refresh returned no snapshots to persist");
     }
 
+    await persistNormalizedReportData(normalizedDataset);
     await replaceCurrentDashboardData(account, primarySnapshot, cplTarget);
-    await replaceDailyPerformance(dailyPerformance.days);
+    await replaceDailyPerformance(
+      await buildLegacyDailyPerformanceFromNormalizedData({
+        dataset: normalizedDataset,
+        since: primarySnapshot.dateRangeSince,
+        until: primarySnapshot.dateRangeUntil,
+      })
+    );
+    await replaceActionItemsData(
+      buildActionItems(
+        buildCurrentCampaignRows(primarySnapshot, cplTarget),
+        cplTarget,
+        completedByTitle,
+        await buildAdsetActionSignals({ preset: "last_30d" }, cplTarget)
+      )
+    );
 
     if (failed.length > 0) {
       throw new DashboardRefreshError(

@@ -36,6 +36,25 @@ type CurrentCampaignRow = {
   recommendation: string;
 };
 
+export type ActionSignalRow = {
+  shortName: string;
+  amountSpent: string | number;
+  ctrLink: string | number;
+  frequency: string | number;
+  costPerLead: string | number | null;
+  status: PerformanceStatus;
+};
+
+type RecommendationMetrics = {
+  shortName: string;
+  amountSpent: number;
+  leads: number;
+  linkClicks: number;
+  ctrLink: number;
+  frequency: number;
+  costPerLead: number | null;
+};
+
 function toFixedString(value: number, digits: number) {
   return value.toFixed(digits);
 }
@@ -71,7 +90,7 @@ export function getCampaignStatus(
 }
 
 export function buildCampaignRecommendation(
-  campaign: FetchedSnapshot["campaigns"][number],
+  campaign: RecommendationMetrics,
   cplTarget: number
 ) {
   const status = getCampaignStatus(campaign.costPerLead, cplTarget);
@@ -177,7 +196,8 @@ export function buildCurrentCampaignRows(
 export function buildActionItems(
   campaigns: CurrentCampaignRow[],
   cplTarget: number,
-  completedByTitle = new Map<string, boolean>()
+  completedByTitle = new Map<string, boolean>(),
+  adsets: ActionSignalRow[] = []
 ): ActionItemDraft[] {
   const items: ActionItemDraft[] = [];
   const sortedBySpend = [...campaigns].sort(
@@ -189,6 +209,16 @@ export function buildActionItems(
     .sort((left, right) => Number(left.costPerLead ?? "9999") - Number(right.costPerLead ?? "9999"));
   const lowCtr = sortedBySpend.filter(c => Number(c.ctrLink) < 1.5);
   const highFrequency = sortedBySpend.filter(c => Number(c.frequency) >= 2.5);
+  const poorAdsets = [...adsets]
+    .filter(adset => adset.status === "poor")
+    .sort(
+      (left, right) => Number(right.amountSpent) - Number(left.amountSpent)
+    );
+  const lowCtrAdsets = [...adsets]
+    .filter(adset => Number(adset.ctrLink) < 1.25)
+    .sort(
+      (left, right) => Number(right.amountSpent) - Number(left.amountSpent)
+    );
 
   if (poor[0]) {
     const campaign = poor[0];
@@ -239,6 +269,32 @@ export function buildActionItems(
       completed:
         completedByTitle.get(`Watch delivery fatigue on ${campaign.shortName}`) ??
         false,
+    });
+  }
+
+  if (poorAdsets[0]) {
+    const adset = poorAdsets[0];
+    const currentCpl = Number(adset.costPerLead ?? "0");
+    items.push({
+      priority: "medium",
+      category: "optimize",
+      title: `Tighten ${adset.shortName}`,
+      description: `${adset.shortName} is over target at $${currentCpl.toFixed(2)} CPL. Narrow placements, audience, or optimization inputs before adding more spend.`,
+      estimatedImpact: "Reduce wasted spend inside the campaign before broader budget changes",
+      completed: completedByTitle.get(`Tighten ${adset.shortName}`) ?? false,
+    });
+  }
+
+  if (lowCtrAdsets[0]) {
+    const adset = lowCtrAdsets[0];
+    items.push({
+      priority: "medium",
+      category: "test",
+      title: `Test a new angle in ${adset.shortName}`,
+      description: `${adset.shortName} is under 1.25% link CTR. Test a sharper hook or creative angle before scaling the parent campaign.`,
+      estimatedImpact: "Improve click quality at the ad set level",
+      completed:
+        completedByTitle.get(`Test a new angle in ${adset.shortName}`) ?? false,
     });
   }
 

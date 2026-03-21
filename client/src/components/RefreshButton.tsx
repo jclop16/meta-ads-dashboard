@@ -23,6 +23,11 @@ export default function RefreshButton({ onRefreshComplete }: RefreshButtonProps)
       utils.dashboard.campaigns.invalidate();
       utils.dashboard.actionItems.invalidate();
       utils.dashboard.dailyPerformance.invalidate();
+      utils.dashboard.explorerSummary.invalidate();
+      utils.dashboard.explorerCampaigns.invalidate();
+      utils.dashboard.explorerAdsets.invalidate();
+      utils.dashboard.explorerAds.invalidate();
+      utils.dashboard.explorerTrend.invalidate();
 
       const savedCount = data.saved.length;
       const failedCount = data.failed.length;
@@ -53,6 +58,11 @@ export default function RefreshButton({ onRefreshComplete }: RefreshButtonProps)
       utils.dashboard.campaigns.invalidate();
       utils.dashboard.actionItems.invalidate();
       utils.dashboard.dailyPerformance.invalidate();
+      utils.dashboard.explorerSummary.invalidate();
+      utils.dashboard.explorerCampaigns.invalidate();
+      utils.dashboard.explorerAdsets.invalidate();
+      utils.dashboard.explorerAds.invalidate();
+      utils.dashboard.explorerTrend.invalidate();
       toast.error("Refresh failed", {
         description: err.message,
         duration: 6000,

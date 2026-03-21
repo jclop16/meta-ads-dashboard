@@ -4,7 +4,9 @@ import { runDashboardRefresh } from "./refreshService";
 vi.mock("./db", () => ({
   createRefreshRun: vi.fn().mockResolvedValue(42),
   finishRefreshRun: vi.fn().mockResolvedValue(undefined),
+  getAllActionItems: vi.fn().mockResolvedValue([]),
   getSetting: vi.fn().mockResolvedValue(null),
+  replaceActionItemsData: vi.fn().mockResolvedValue(undefined),
   replaceCurrentDashboardData: vi.fn().mockResolvedValue(undefined),
   replaceDailyPerformance: vi.fn().mockResolvedValue(undefined),
   saveSnapshot: vi.fn().mockResolvedValue(1),
@@ -44,18 +46,35 @@ vi.mock("./metaAdsFetcher", () => ({
       },
     ],
   }),
-  fetchDailyPerformance: vi.fn().mockResolvedValue({
+  fetchNormalizedReportData: vi.fn().mockResolvedValue({
     sourceMode: "live",
-    days: [
-      {
-        date: "2026-03-12",
-        label: "Mar 12",
-        amountSpent: 421.18,
-        leads: 19,
-        costPerLead: 22.17,
-      },
-    ],
+    fetchedAt: new Date("2026-03-18T12:00:00Z"),
+    account: {
+      id: "act_1234567890",
+      name: "Legacy Empowerment Group",
+      currency: "USD",
+    },
+    campaigns: [],
+    adsets: [],
+    ads: [],
+    campaignFacts: [],
+    adsetFacts: [],
+    adFacts: [],
   }),
+}));
+
+vi.mock("./reportingStore", () => ({
+  persistNormalizedReportData: vi.fn().mockResolvedValue(undefined),
+  buildLegacyDailyPerformanceFromNormalizedData: vi.fn().mockResolvedValue([
+    {
+      date: "2026-03-12",
+      label: "Mar 12",
+      amountSpent: 421.18,
+      leads: 19,
+      costPerLead: 22.17,
+    },
+  ]),
+  buildAdsetActionSignals: vi.fn().mockResolvedValue([]),
 }));
 
 describe("runDashboardRefresh", () => {
@@ -68,6 +87,7 @@ describe("runDashboardRefresh", () => {
     const {
       createRefreshRun,
       finishRefreshRun,
+      replaceActionItemsData,
       replaceCurrentDashboardData,
       replaceDailyPerformance,
       saveSnapshot,
@@ -87,6 +107,7 @@ describe("runDashboardRefresh", () => {
     expect(vi.mocked(saveSnapshot)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(replaceCurrentDashboardData)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(replaceDailyPerformance)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(replaceActionItemsData)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(finishRefreshRun)).toHaveBeenCalledWith(
       42,
       expect.objectContaining({

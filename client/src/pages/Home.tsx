@@ -285,6 +285,19 @@ function DashboardContent() {
             {reportDateRange}
           </div>
           <a
+            href="/explorer"
+            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors hover:brightness-125"
+            style={{
+              fontFamily: "'Space Grotesk', sans-serif",
+              background: "rgba(0,212,255,0.08)",
+              border: "1px solid rgba(0,212,255,0.14)",
+              color: "#00D4FF",
+            }}
+          >
+            <BarChart2 size={12} />
+            Explorer
+          </a>
+          <a
             href="/history"
             className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors hover:brightness-125"
             style={{

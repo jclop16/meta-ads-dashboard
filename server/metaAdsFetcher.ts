@@ -20,6 +20,10 @@ export type MetaAccountProfile = {
 export interface MetaInsightRow {
   campaign_id?: string;
   campaign_name?: string;
+  adset_id?: string;
+  adset_name?: string;
+  ad_id?: string;
+  ad_name?: string;
   spend: string;
   impressions: string;
   reach: string;
@@ -87,6 +91,84 @@ export interface DailyPerformancePoint {
   costPerLead: number | null;
 }
 
+export interface NormalizedMetricFact {
+  accountId: string;
+  date: string;
+  amountSpent: number;
+  impressions: number;
+  reach: number;
+  frequency: number;
+  clicksAll: number;
+  linkClicks: number;
+  ctrAll: number;
+  ctrLink: number;
+  cpm: number;
+  cpcAll: number;
+  cpcLink: number;
+  leads: number;
+  costPerLead: number | null;
+}
+
+export interface NormalizedCampaignEntity {
+  id: string;
+  accountId: string;
+  name: string;
+  shortName: string;
+  objective: string;
+  status: string | null;
+  effectiveStatus: string | null;
+}
+
+export interface NormalizedAdsetEntity {
+  id: string;
+  accountId: string;
+  campaignId: string;
+  name: string;
+  status: string | null;
+  effectiveStatus: string | null;
+  optimizationGoal: string | null;
+  billingEvent: string | null;
+}
+
+export interface NormalizedAdEntity {
+  id: string;
+  accountId: string;
+  campaignId: string;
+  adsetId: string;
+  name: string;
+  status: string | null;
+  effectiveStatus: string | null;
+  creativeId: string | null;
+  creativeName: string | null;
+}
+
+export interface NormalizedCampaignFact extends NormalizedMetricFact {
+  campaignId: string;
+}
+
+export interface NormalizedAdsetFact extends NormalizedMetricFact {
+  campaignId: string;
+  adsetId: string;
+}
+
+export interface NormalizedAdFact extends NormalizedMetricFact {
+  campaignId: string;
+  adsetId: string;
+  adId: string;
+}
+
+export interface NormalizedMetaDataset {
+  account: MetaAccountProfile;
+  campaigns: NormalizedCampaignEntity[];
+  adsets: NormalizedAdsetEntity[];
+  ads: NormalizedAdEntity[];
+  campaignFacts: NormalizedCampaignFact[];
+  adsetFacts: NormalizedAdsetFact[];
+  adFacts: NormalizedAdFact[];
+  sourceMode: "live" | "demo";
+  fetchedAt: Date;
+}
+
 export interface MetaConnectionStatus {
   configured: boolean;
   connected: boolean;
@@ -120,6 +202,37 @@ type GraphPage<T> = {
   error?: GraphApiErrorPayload;
 };
 
+type MetaCampaignNode = {
+  id: string;
+  name?: string;
+  objective?: string;
+  status?: string;
+  effective_status?: string;
+};
+
+type MetaAdsetNode = {
+  id: string;
+  name?: string;
+  campaign_id?: string;
+  status?: string;
+  effective_status?: string;
+  optimization_goal?: string;
+  billing_event?: string;
+};
+
+type MetaAdNode = {
+  id: string;
+  name?: string;
+  campaign_id?: string;
+  adset_id?: string;
+  status?: string;
+  effective_status?: string;
+  creative?: {
+    id?: string;
+    name?: string;
+  };
+};
+
 const DAY_LABEL_FORMATTER = new Intl.DateTimeFormat("en-US", {
   month: "short",
   day: "numeric",
@@ -140,6 +253,50 @@ const LEAD_ACTION_TYPES = new Set([
 const INSIGHTS_FIELDS = [
   "campaign_id",
   "campaign_name",
+  "spend",
+  "impressions",
+  "reach",
+  "frequency",
+  "clicks",
+  "inline_link_clicks",
+  "ctr",
+  "inline_link_click_ctr",
+  "cpm",
+  "cpc",
+  "cost_per_inline_link_click",
+  "actions",
+  "date_start",
+  "date_stop",
+].join(",");
+
+const ADSET_INSIGHTS_FIELDS = [
+  "campaign_id",
+  "campaign_name",
+  "adset_id",
+  "adset_name",
+  "spend",
+  "impressions",
+  "reach",
+  "frequency",
+  "clicks",
+  "inline_link_clicks",
+  "ctr",
+  "inline_link_click_ctr",
+  "cpm",
+  "cpc",
+  "cost_per_inline_link_click",
+  "actions",
+  "date_start",
+  "date_stop",
+].join(",");
+
+const AD_INSIGHTS_FIELDS = [
+  "campaign_id",
+  "campaign_name",
+  "adset_id",
+  "adset_name",
+  "ad_id",
+  "ad_name",
   "spend",
   "impressions",
   "reach",
@@ -440,6 +597,352 @@ async function fetchDailyInsightsForPreset(preset: string) {
   );
 }
 
+async function fetchCampaignMetadata() {
+  return fetchAllPages<MetaCampaignNode>(
+    `${normalizeAdAccountId(ENV.metaAdAccountId)}/campaigns`,
+    {
+      fields: "id,name,objective,status,effective_status",
+      limit: "250",
+    }
+  );
+}
+
+async function fetchAdsetMetadata() {
+  return fetchAllPages<MetaAdsetNode>(
+    `${normalizeAdAccountId(ENV.metaAdAccountId)}/adsets`,
+    {
+      fields:
+        "id,name,campaign_id,status,effective_status,optimization_goal,billing_event",
+      limit: "500",
+    }
+  );
+}
+
+async function fetchAdMetadata() {
+  return fetchAllPages<MetaAdNode>(
+    `${normalizeAdAccountId(ENV.metaAdAccountId)}/ads`,
+    {
+      fields: "id,name,campaign_id,adset_id,status,effective_status,creative{id,name}",
+      limit: "500",
+    }
+  );
+}
+
+async function fetchRollingDailyInsights(level: "campaign" | "adset" | "ad") {
+  const fields =
+    level === "campaign"
+      ? INSIGHTS_FIELDS
+      : level === "adset"
+        ? ADSET_INSIGHTS_FIELDS
+        : AD_INSIGHTS_FIELDS;
+
+  return fetchAllPages<MetaInsightRow>(
+    `${normalizeAdAccountId(ENV.metaAdAccountId)}/insights`,
+    {
+      level,
+      date_preset: "last_90d",
+      time_increment: "1",
+      fields,
+      limit: level === "ad" ? "500" : "250",
+    }
+  );
+}
+
+function buildMetricFact(input: {
+  accountId: string;
+  date: string;
+  amountSpent: number;
+  impressions: number;
+  reach: number;
+  frequency: number;
+  clicksAll: number;
+  linkClicks: number;
+  ctrAll: number;
+  ctrLink: number;
+  cpm: number;
+  cpcAll: number;
+  cpcLink: number;
+  leads: number;
+}) {
+  return {
+    accountId: input.accountId,
+    date: input.date,
+    amountSpent: Number(input.amountSpent.toFixed(2)),
+    impressions: input.impressions,
+    reach: input.reach,
+    frequency: Number(input.frequency.toFixed(4)),
+    clicksAll: input.clicksAll,
+    linkClicks: input.linkClicks,
+    ctrAll: Number(input.ctrAll.toFixed(4)),
+    ctrLink: Number(input.ctrLink.toFixed(4)),
+    cpm: Number(input.cpm.toFixed(4)),
+    cpcAll: Number(input.cpcAll.toFixed(4)),
+    cpcLink: Number(input.cpcLink.toFixed(4)),
+    leads: input.leads,
+    costPerLead:
+      input.leads > 0
+        ? Number((input.amountSpent / input.leads).toFixed(4))
+        : null,
+  };
+}
+
+function buildCampaignFacts(
+  accountId: string,
+  rows: MetaInsightRow[]
+): NormalizedCampaignFact[] {
+  return rows
+    .filter(row => row.campaign_id && row.date_start)
+    .map(row => {
+      const amountSpent = safeFloat(row.spend);
+      const leads = parseLeads(row);
+
+      return {
+        campaignId: row.campaign_id!,
+        ...buildMetricFact({
+          accountId,
+          date: row.date_start,
+          amountSpent,
+          impressions: safeInt(row.impressions),
+          reach: safeInt(row.reach),
+          frequency: safeFloat(row.frequency),
+          clicksAll: safeInt(row.clicks),
+          linkClicks: safeInt(row.inline_link_clicks),
+          ctrAll: safeFloat(row.ctr),
+          ctrLink: safeFloat(row.inline_link_click_ctr),
+          cpm: safeFloat(row.cpm),
+          cpcAll: safeFloat(row.cpc),
+          cpcLink: safeFloat(row.cost_per_inline_link_click),
+          leads,
+        }),
+      };
+    });
+}
+
+function buildAdsetFacts(
+  accountId: string,
+  rows: MetaInsightRow[]
+): NormalizedAdsetFact[] {
+  return rows
+    .filter(row => row.campaign_id && row.adset_id && row.date_start)
+    .map(row => {
+      const amountSpent = safeFloat(row.spend);
+      const leads = parseLeads(row);
+
+      return {
+        campaignId: row.campaign_id!,
+        adsetId: row.adset_id!,
+        ...buildMetricFact({
+          accountId,
+          date: row.date_start,
+          amountSpent,
+          impressions: safeInt(row.impressions),
+          reach: safeInt(row.reach),
+          frequency: safeFloat(row.frequency),
+          clicksAll: safeInt(row.clicks),
+          linkClicks: safeInt(row.inline_link_clicks),
+          ctrAll: safeFloat(row.ctr),
+          ctrLink: safeFloat(row.inline_link_click_ctr),
+          cpm: safeFloat(row.cpm),
+          cpcAll: safeFloat(row.cpc),
+          cpcLink: safeFloat(row.cost_per_inline_link_click),
+          leads,
+        }),
+      };
+    });
+}
+
+function buildAdFacts(
+  accountId: string,
+  rows: MetaInsightRow[]
+): NormalizedAdFact[] {
+  return rows
+    .filter(row => row.campaign_id && row.adset_id && row.ad_id && row.date_start)
+    .map(row => {
+      const amountSpent = safeFloat(row.spend);
+      const leads = parseLeads(row);
+
+      return {
+        campaignId: row.campaign_id!,
+        adsetId: row.adset_id!,
+        adId: row.ad_id!,
+        ...buildMetricFact({
+          accountId,
+          date: row.date_start,
+          amountSpent,
+          impressions: safeInt(row.impressions),
+          reach: safeInt(row.reach),
+          frequency: safeFloat(row.frequency),
+          clicksAll: safeInt(row.clicks),
+          linkClicks: safeInt(row.inline_link_clicks),
+          ctrAll: safeFloat(row.ctr),
+          ctrLink: safeFloat(row.inline_link_click_ctr),
+          cpm: safeFloat(row.cpm),
+          cpcAll: safeFloat(row.cpc),
+          cpcLink: safeFloat(row.cost_per_inline_link_click),
+          leads,
+        }),
+      };
+    });
+}
+
+function buildDemoNormalizedDataset(): NormalizedMetaDataset {
+  const demo = getDemoFetchedDataset();
+  const primary =
+    demo.snapshots.find(snapshot => snapshot.datePreset === "last_30d") ??
+    demo.snapshots[0];
+  const accountId = demo.account.id;
+  const dailyPoints = getDemoDailyPerformance();
+
+  if (!primary) {
+    return {
+      account: demo.account,
+      campaigns: [],
+      adsets: [],
+      ads: [],
+      campaignFacts: [],
+      adsetFacts: [],
+      adFacts: [],
+      sourceMode: "demo",
+      fetchedAt: new Date(),
+    };
+  }
+
+  const totalSpend = primary.campaigns.reduce(
+    (sum, campaign) => sum + campaign.amountSpent,
+    0
+  );
+  const spendWeights = primary.campaigns.map(campaign =>
+    totalSpend > 0 ? campaign.amountSpent / totalSpend : 0
+  );
+  const impressionWeights = primary.campaigns.map(campaign =>
+    primary.account.impressions > 0
+      ? campaign.impressions / primary.account.impressions
+      : 0
+  );
+  const reachWeights = primary.campaigns.map(campaign =>
+    primary.account.reach > 0 ? campaign.reach / primary.account.reach : 0
+  );
+  const clickWeights = primary.campaigns.map(campaign =>
+    primary.account.clicksAll > 0
+      ? campaign.clicksAll / primary.account.clicksAll
+      : 0
+  );
+  const linkClickWeights = primary.campaigns.map(campaign =>
+    primary.account.linkClicks > 0
+      ? campaign.linkClicks / primary.account.linkClicks
+      : 0
+  );
+  const leadWeights = primary.campaigns.map(campaign =>
+    primary.account.leads > 0 ? campaign.leads / primary.account.leads : 0
+  );
+
+  const campaigns: NormalizedCampaignEntity[] = primary.campaigns.map(campaign => ({
+    id: campaign.campaignId,
+    accountId,
+    name: campaign.campaignName,
+    shortName: campaign.shortName,
+    objective: campaign.objective,
+    status: "ACTIVE",
+    effectiveStatus: "ACTIVE",
+  }));
+
+  const adsets: NormalizedAdsetEntity[] = primary.campaigns.map(campaign => ({
+    id: `${campaign.campaignId}-adset-1`,
+    accountId,
+    campaignId: campaign.campaignId,
+    name: `${campaign.shortName} Ad Set`,
+    status: "ACTIVE",
+    effectiveStatus: "ACTIVE",
+    optimizationGoal: "LEAD_GENERATION",
+    billingEvent: "IMPRESSIONS",
+  }));
+
+  const ads: NormalizedAdEntity[] = primary.campaigns.map(campaign => ({
+    id: `${campaign.campaignId}-ad-1`,
+    accountId,
+    campaignId: campaign.campaignId,
+    adsetId: `${campaign.campaignId}-adset-1`,
+    name: `${campaign.shortName} Ad`,
+    status: "ACTIVE",
+    effectiveStatus: "ACTIVE",
+    creativeId: null,
+    creativeName: null,
+  }));
+
+  const campaignFacts: NormalizedCampaignFact[] = [];
+  const adsetFacts: NormalizedAdsetFact[] = [];
+  const adFacts: NormalizedAdFact[] = [];
+
+  dailyPoints.forEach(day => {
+    primary.campaigns.forEach((campaign, index) => {
+      const amountSpent = day.amountSpent * (spendWeights[index] ?? 0);
+      const impressions = Math.round(day.amountSpent > 0 ? day.amountSpent * 10 * (impressionWeights[index] ?? spendWeights[index] ?? 0) : 0) ||
+        Math.round((primary.account.impressions / Math.max(dailyPoints.length, 1)) * (impressionWeights[index] ?? 0));
+      const reach = Math.min(
+        impressions,
+        Math.round(
+          (primary.account.reach / Math.max(dailyPoints.length, 1)) *
+            (reachWeights[index] ?? spendWeights[index] ?? 0)
+        )
+      );
+      const clicksAll = Math.round(
+        (campaign.clicksAll / Math.max(dailyPoints.length, 1)) *
+          ((clickWeights[index] ?? spendWeights[index] ?? 0) > 0 ? 1 : 0)
+      );
+      const linkClicks = Math.round(
+        (campaign.linkClicks / Math.max(dailyPoints.length, 1)) *
+          ((linkClickWeights[index] ?? spendWeights[index] ?? 0) > 0 ? 1 : 0)
+      );
+      const leads = Math.round(day.leads * (leadWeights[index] ?? 0));
+
+      const factBase = buildMetricFact({
+        accountId,
+        date: day.date,
+        amountSpent,
+        impressions,
+        reach,
+        frequency: campaign.frequency,
+        clicksAll,
+        linkClicks,
+        ctrAll: impressions > 0 ? (clicksAll / impressions) * 100 : campaign.ctrAll,
+        ctrLink: impressions > 0 ? (linkClicks / impressions) * 100 : campaign.ctrLink,
+        cpm: impressions > 0 ? (amountSpent / impressions) * 1000 : campaign.cpm,
+        cpcAll: clicksAll > 0 ? amountSpent / clicksAll : campaign.cpcAll,
+        cpcLink: linkClicks > 0 ? amountSpent / linkClicks : campaign.cpcLink,
+        leads,
+      });
+
+      campaignFacts.push({
+        campaignId: campaign.campaignId,
+        ...factBase,
+      });
+      adsetFacts.push({
+        campaignId: campaign.campaignId,
+        adsetId: `${campaign.campaignId}-adset-1`,
+        ...factBase,
+      });
+      adFacts.push({
+        campaignId: campaign.campaignId,
+        adsetId: `${campaign.campaignId}-adset-1`,
+        adId: `${campaign.campaignId}-ad-1`,
+        ...factBase,
+      });
+    });
+  });
+
+  return {
+    account: demo.account,
+    campaigns,
+    adsets,
+    ads,
+    campaignFacts,
+    adsetFacts,
+    adFacts,
+    sourceMode: "demo",
+    fetchedAt: new Date(),
+  };
+}
+
 export async function fetchSnapshotForPreset(
   preset: string,
   label: string,
@@ -570,6 +1073,108 @@ export async function fetchDailyPerformance(): Promise<{
       })
       .sort((left, right) => left.date.localeCompare(right.date)),
     sourceMode: "live",
+  };
+}
+
+export async function fetchNormalizedReportData(): Promise<NormalizedMetaDataset> {
+  if (!isMetaApiConfigured()) {
+    return buildDemoNormalizedDataset();
+  }
+
+  const [account, campaignNodes, adsetNodes, adNodes, campaignRows, adsetRows, adRows] =
+    await Promise.all([
+      fetchAccountProfile(),
+      fetchCampaignMetadata().catch(error => {
+        throw new Error(
+          `Normalized campaign metadata ingestion failed: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`
+        );
+      }),
+      fetchAdsetMetadata().catch(error => {
+        throw new Error(
+          `Normalized ad set metadata ingestion failed: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`
+        );
+      }),
+      fetchAdMetadata().catch(error => {
+        throw new Error(
+          `Normalized ad metadata ingestion failed: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`
+        );
+      }),
+      fetchRollingDailyInsights("campaign").catch(error => {
+        throw new Error(
+          `Normalized campaign fact ingestion failed: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`
+        );
+      }),
+      fetchRollingDailyInsights("adset").catch(error => {
+        throw new Error(
+          `Normalized ad set fact ingestion failed: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`
+        );
+      }),
+      fetchRollingDailyInsights("ad").catch(error => {
+        throw new Error(
+          `Normalized ad fact ingestion failed: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`
+        );
+      }),
+    ]);
+
+  const campaigns: NormalizedCampaignEntity[] = campaignNodes.map(node => ({
+    id: node.id,
+    accountId: account.id,
+    name: node.name ?? node.id,
+    shortName: toShortName(node.name ?? node.id),
+    objective: node.objective ?? inferObjective(node.name ?? ""),
+    status: node.status ?? null,
+    effectiveStatus: node.effective_status ?? null,
+  }));
+
+  const adsets: NormalizedAdsetEntity[] = adsetNodes
+    .filter(node => node.campaign_id)
+    .map(node => ({
+      id: node.id,
+      accountId: account.id,
+      campaignId: node.campaign_id!,
+      name: node.name ?? node.id,
+      status: node.status ?? null,
+      effectiveStatus: node.effective_status ?? null,
+      optimizationGoal: node.optimization_goal ?? null,
+      billingEvent: node.billing_event ?? null,
+    }));
+
+  const ads: NormalizedAdEntity[] = adNodes
+    .filter(node => node.campaign_id && node.adset_id)
+    .map(node => ({
+      id: node.id,
+      accountId: account.id,
+      campaignId: node.campaign_id!,
+      adsetId: node.adset_id!,
+      name: node.name ?? node.id,
+      status: node.status ?? null,
+      effectiveStatus: node.effective_status ?? null,
+      creativeId: node.creative?.id ?? null,
+      creativeName: node.creative?.name ?? null,
+    }));
+
+  return {
+    account,
+    campaigns,
+    adsets,
+    ads,
+    campaignFacts: buildCampaignFacts(account.id, campaignRows),
+    adsetFacts: buildAdsetFacts(account.id, adsetRows),
+    adFacts: buildAdFacts(account.id, adRows),
+    sourceMode: "live",
+    fetchedAt: new Date(),
   };
 }
 

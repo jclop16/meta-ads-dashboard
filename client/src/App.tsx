@@ -7,6 +7,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { CplTargetProvider } from "./contexts/CplTargetContext";
 
 const Home = lazy(() => import("./pages/Home"));
+const Explorer = lazy(() => import("./pages/Explorer"));
 const SnapshotHistory = lazy(() => import("./pages/SnapshotHistory"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
@@ -15,6 +16,7 @@ function Router() {
   return (
     <Switch>
       <Route path={"/"} component={Home} />
+      <Route path={"/explorer"} component={Explorer} />
       <Route path={"/history"} component={SnapshotHistory} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />

@@ -27,6 +27,14 @@ import {
 } from "./metaAdsFetcher";
 import { ENV } from "./_core/env";
 import { runDashboardRefresh } from "./refreshService";
+import {
+  EXPLORER_DATE_PRESETS,
+  getExplorerAdBreakdown,
+  getExplorerAdsetBreakdown,
+  getExplorerCampaignBreakdown,
+  getExplorerSummary,
+  getExplorerTrendSeries,
+} from "./reportingStore";
 
 async function resolveCplTarget(userId: number | null) {
   const storedTarget = userId != null ? await getSetting("cplTarget", userId) : null;
@@ -38,6 +46,15 @@ async function resolveCplTarget(userId: number | null) {
       ? Number.parseFloat(fallbackTarget)
       : DEFAULT_CPL_TARGET;
 }
+
+const explorerFiltersSchema = z.object({
+  preset: z.enum(EXPLORER_DATE_PRESETS),
+  since: z.string().optional().nullable(),
+  until: z.string().optional().nullable(),
+  objective: z.string().optional().nullable(),
+  status: z.string().optional().nullable(),
+  query: z.string().optional().nullable(),
+});
 
 export const appRouter = router({
   auth: router({
@@ -106,23 +123,12 @@ export const appRouter = router({
         ),
         recommendation: buildCampaignRecommendation(
           {
-            campaignId: c.id,
-            campaignName: c.name,
             shortName: c.shortName,
-            objective: c.objective,
-            status: c.status,
             amountSpent: parseFloat(c.amountSpent),
-            impressions: c.impressions,
-            reach: c.reach,
-            frequency: parseFloat(c.frequency),
-            clicksAll: c.clicksAll,
-            linkClicks: c.linkClicks,
-            ctrAll: parseFloat(c.ctrAll),
-            ctrLink: parseFloat(c.ctrLink),
-            cpm: parseFloat(c.cpm),
-            cpcAll: parseFloat(c.cpcAll),
-            cpcLink: parseFloat(c.cpcLink),
             leads: c.leads,
+            linkClicks: c.linkClicks,
+            ctrLink: parseFloat(c.ctrLink),
+            frequency: parseFloat(c.frequency),
             costPerLead: c.costPerLead != null ? parseFloat(c.costPerLead) : null,
           },
           cplTarget
@@ -222,6 +228,56 @@ export const appRouter = router({
 
     // Available date presets (for the UI picker)
     datePresets: publicProcedure.query(() => DATE_PRESETS),
+
+    explorerSummary: publicProcedure
+      .input(explorerFiltersSchema)
+      .query(async ({ input }) => getExplorerSummary(input)),
+
+    explorerCampaigns: publicProcedure
+      .input(explorerFiltersSchema)
+      .query(async ({ input, ctx }) =>
+        getExplorerCampaignBreakdown(
+          input,
+          await resolveCplTarget(ctx.user?.id ?? null)
+        )
+      ),
+
+    explorerAdsets: publicProcedure
+      .input(
+        explorerFiltersSchema.extend({
+          campaignId: z.string().min(1),
+        })
+      )
+      .query(async ({ input, ctx }) =>
+        getExplorerAdsetBreakdown(
+          input,
+          input.campaignId,
+          await resolveCplTarget(ctx.user?.id ?? null)
+        )
+      ),
+
+    explorerAds: publicProcedure
+      .input(
+        explorerFiltersSchema.extend({
+          adsetId: z.string().min(1),
+        })
+      )
+      .query(async ({ input, ctx }) =>
+        getExplorerAdBreakdown(
+          input,
+          input.adsetId,
+          await resolveCplTarget(ctx.user?.id ?? null)
+        )
+      ),
+
+    explorerTrend: publicProcedure
+      .input(
+        explorerFiltersSchema.extend({
+          level: z.enum(["account", "campaign", "adset", "ad"]),
+          entityId: z.string().optional().nullable(),
+        })
+      )
+      .query(async ({ input }) => getExplorerTrendSeries(input)),
   }),
 
   // ── Settings (CPL target, etc.) ───────────────────────────────

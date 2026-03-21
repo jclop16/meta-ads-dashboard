@@ -24,6 +24,7 @@ import {
   type UserSetting,
 } from "../drizzle/schema";
 import {
+  type ActionItemDraft,
   DEFAULT_CPL_TARGET,
   buildActionItems,
   buildCurrentAccountMetricsRow,
@@ -747,6 +748,27 @@ export async function replaceDailyPerformance(days: DailyPerformancePoint[]) {
   const rows = toDailyPerformanceRows(days);
   if (rows.length > 0) {
     await db.insert(dailyPerformance).values(rows);
+  }
+}
+
+export async function replaceActionItemsData(nextActionItems: ActionItemDraft[]) {
+  const db = await getDb();
+
+  if (!db) {
+    const store = getMemoryStore();
+    store.actionItems = nextActionItems.map(item => ({
+      id: store.nextIds.actionItem++,
+      ...item,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }));
+    return;
+  }
+
+  await db.delete(actionItems);
+
+  if (nextActionItems.length > 0) {
+    await db.insert(actionItems).values(nextActionItems);
   }
 }
 
