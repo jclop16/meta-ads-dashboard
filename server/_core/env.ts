@@ -7,6 +7,11 @@ function normalizeBaseUrl(value: string) {
   return value.replace(/\/+$/, "");
 }
 
+function parsePositiveInt(value: string | undefined, fallback: number) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function toHttpsUrl(hostOrUrl: string) {
   if (!hostOrUrl) return "";
   return hostOrUrl.startsWith("http://") || hostOrUrl.startsWith("https://")
@@ -25,6 +30,10 @@ export type AppEnv = ReturnType<typeof readEnv>;
 
 export function readEnv(source: NodeJS.ProcessEnv = process.env) {
   const metaApiVersion = source.META_API_VERSION ?? "v22.0";
+  const metaRequestTimeoutMs = parsePositiveInt(
+    source.META_REQUEST_TIMEOUT_MS,
+    30000
+  );
   const railwayPublicDomain = source.RAILWAY_PUBLIC_DOMAIN ?? "";
   const appBaseUrl =
     source.APP_BASE_URL ?? toHttpsUrl(railwayPublicDomain);
@@ -36,6 +45,7 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env) {
     metaAdAccountId: normalizeAdAccountId(source.META_AD_ACCOUNT_ID ?? ""),
     metaAccountName: source.META_ACCOUNT_NAME ?? "",
     metaApiVersion,
+    metaRequestTimeoutMs,
     metaGraphBaseUrl: `https://graph.facebook.com/${metaApiVersion}`,
     refreshApiKey: source.REFRESH_API_KEY ?? "",
     railwayPublicDomain,

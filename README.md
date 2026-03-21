@@ -54,6 +54,8 @@ Still not in scope yet:
   Ad account ID. Either `act_123...` or the raw numeric ID works.
 - `META_API_VERSION`
   Optional Graph API version override. Default is `v22.0`.
+- `META_REQUEST_TIMEOUT_MS`
+  Optional timeout for individual Meta Graph requests. Default is `30000`. Raise this only if your ad account is unusually large or Graph is slow.
 - `META_ACCOUNT_NAME`
   Optional fallback name if the Meta profile endpoint does not return one.
 

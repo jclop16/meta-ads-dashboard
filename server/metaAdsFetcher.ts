@@ -238,7 +238,12 @@ const DAY_LABEL_FORMATTER = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
   timeZone: "UTC",
 });
-const META_REQUEST_TIMEOUT_MS = 15000;
+const NORMALIZED_FACT_LOOKBACK_DAYS = 90;
+const FACT_WINDOW_DAYS = {
+  campaign: 30,
+  adset: 21,
+  ad: 14,
+} as const;
 
 const LEAD_ACTION_TYPES = new Set([
   "lead",
@@ -363,6 +368,44 @@ function formatDayLabel(isoDate: string) {
   return DAY_LABEL_FORMATTER.format(new Date(`${isoDate}T00:00:00Z`));
 }
 
+function startOfUtcDay(date: Date) {
+  const normalized = new Date(date);
+  normalized.setUTCHours(0, 0, 0, 0);
+  return normalized;
+}
+
+function addUtcDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function formatIsoDate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function buildRollingTimeWindows(totalDays: number, windowDays: number) {
+  const today = startOfUtcDay(new Date());
+  const firstDay = addUtcDays(today, -(totalDays - 1));
+  const windows: Array<{ since: string; until: string }> = [];
+  let cursor = firstDay;
+
+  while (cursor.getTime() <= today.getTime()) {
+    const candidateUntil = addUtcDays(cursor, windowDays - 1);
+    const until =
+      candidateUntil.getTime() <= today.getTime() ? candidateUntil : today;
+
+    windows.push({
+      since: formatIsoDate(cursor),
+      until: formatIsoDate(until),
+    });
+
+    cursor = addUtcDays(until, 1);
+  }
+
+  return windows;
+}
+
 export function isMetaApiConfigured() {
   return Boolean(ENV.metaAccessToken && ENV.metaAdAccountId);
 }
@@ -471,7 +514,10 @@ async function fetchGraphJson<T>(
 ): Promise<T> {
   const url = buildGraphUrl(pathOrUrl, params);
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), META_REQUEST_TIMEOUT_MS);
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    ENV.metaRequestTimeoutMs
+  );
   let response: Response;
 
   try {
@@ -484,7 +530,7 @@ async function fetchGraphJson<T>(
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw new Error(
-        `Meta Graph API request timed out after ${META_REQUEST_TIMEOUT_MS}ms for ${url.pathname}`
+        `Meta Graph API request timed out after ${ENV.metaRequestTimeoutMs}ms for ${url.pathname}`
       );
     }
 
@@ -636,16 +682,39 @@ async function fetchRollingDailyInsights(level: "campaign" | "adset" | "ad") {
         ? ADSET_INSIGHTS_FIELDS
         : AD_INSIGHTS_FIELDS;
 
-  return fetchAllPages<MetaInsightRow>(
-    `${normalizeAdAccountId(ENV.metaAdAccountId)}/insights`,
-    {
-      level,
-      date_preset: "last_90d",
-      time_increment: "1",
-      fields,
-      limit: level === "ad" ? "500" : "250",
-    }
+  const rows: MetaInsightRow[] = [];
+  const windows = buildRollingTimeWindows(
+    NORMALIZED_FACT_LOOKBACK_DAYS,
+    FACT_WINDOW_DAYS[level]
   );
+
+  for (const window of windows) {
+    try {
+      const pageRows = await fetchAllPages<MetaInsightRow>(
+        `${normalizeAdAccountId(ENV.metaAdAccountId)}/insights`,
+        {
+          level,
+          time_increment: "1",
+          time_range: JSON.stringify({
+            since: window.since,
+            until: window.until,
+          }),
+          fields,
+          limit: level === "ad" ? "500" : "250",
+        }
+      );
+
+      rows.push(...pageRows);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown Meta API error";
+      throw new Error(
+        `${message} (window ${window.since}..${window.until}, level ${level})`
+      );
+    }
+  }
+
+  return rows;
 }
 
 function buildMetricFact(input: {
