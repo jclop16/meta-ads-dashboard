@@ -29,7 +29,7 @@ export default function App() {
     <ErrorBoundary>
       <ThemeProvider
         defaultTheme="dark"
-        // switchable
+        switchable
       >
         <CplTargetProvider>
           <TooltipProvider>

@@ -24,6 +24,7 @@ import ActionPanel from "@/components/ActionPanel";
 import CampaignTable from "@/components/CampaignTable";
 import CplTargetInput from "@/components/CplTargetInput";
 import RefreshButton from "@/components/RefreshButton";
+import ThemeToggle from "@/components/ThemeToggle";
 import { useCplTarget } from "@/contexts/CplTargetContext";
 import type { DailyPerformancePoint } from "@/lib/dashboardTypes";
 
@@ -36,12 +37,12 @@ function DarkTooltip({ active, payload, label }: any) {
     <div
       className="rounded-lg p-3 text-xs font-mono"
       style={{
-        background: "#13161E",
+        background: "var(--dash-panel-solid)",
         border: "1px solid rgba(0,212,255,0.2)",
-        boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
+        boxShadow: "var(--dash-shadow)",
       }}
     >
-      <p className="mb-1 font-semibold" style={{ color: "#94A3B8" }}>{label}</p>
+      <p className="mb-1 font-semibold" style={{ color: "var(--dash-text-soft)" }}>{label}</p>
       {payload.map((p: any, i: number) => (
         <p key={i} style={{ color: p.color || "#00D4FF" }}>
           {p.name}: {typeof p.value === "number" && String(p.name).toLowerCase().includes("$")
@@ -236,16 +237,16 @@ function DashboardContent() {
 
   return (
     <div
-      className="min-h-screen grid-bg"
-      style={{ background: "#0D0F14", fontFamily: "'Inter', sans-serif" }}
+      className="dashboard-page min-h-screen grid-bg overflow-x-hidden"
+      style={{ fontFamily: "'Inter', sans-serif" }}
     >
       {/* ── HEADER ─────────────────────────────────────────── */}
       <header
         className="sticky top-0 z-50 px-4 sm:px-6 py-3 flex items-center justify-between gap-3 flex-wrap"
         style={{
-          background: "rgba(13,15,20,0.92)",
+          background: "var(--dash-header)",
           backdropFilter: "blur(12px)",
-          borderBottom: "1px solid rgba(0,212,255,0.08)",
+          borderBottom: "1px solid var(--dash-border)",
         }}
       >
         <div className="flex items-center gap-3 flex-shrink-0">
@@ -257,11 +258,11 @@ function DashboardContent() {
           <div>
             <h1
               className="text-sm font-bold leading-none"
-              style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#E2E8F0" }}
+              style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--dash-text)" }}
             >
               Meta Ads Dashboard
             </h1>
-            <p className="text-[10px] mt-0.5 font-mono" style={{ color: "#475569" }}>
+            <p className="text-[10px] mt-0.5 font-mono" style={{ color: "var(--dash-subtle)" }}>
               {accountName}
             </p>
           </div>
@@ -302,14 +303,15 @@ function DashboardContent() {
             className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors hover:brightness-125"
             style={{
               fontFamily: "'Space Grotesk', sans-serif",
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid rgba(255,255,255,0.08)",
-              color: "#94A3B8",
+              background: "var(--dash-panel-soft)",
+              border: "1px solid var(--dash-border)",
+              color: "var(--dash-text-soft)",
             }}
           >
             <BarChart2 size={12} />
             History
           </a>
+          <ThemeToggle />
           <RefreshButton />
         </div>
       </header>
@@ -317,7 +319,7 @@ function DashboardContent() {
       <div
         className="px-4 sm:px-6 py-2 border-b"
         style={{
-          borderColor: "rgba(255,255,255,0.05)",
+          borderColor: "var(--dash-border)",
           background:
             metaState?.sourceMode === "live"
               ? "rgba(0,212,255,0.04)"
@@ -360,17 +362,17 @@ function DashboardContent() {
                   : "Connection failed"}
             </span>
           ) : null}
-          <span style={{ color: "#64748B" }}>
+          <span style={{ color: "var(--dash-muted)" }}>
             {metaState?.sourceMode === "live"
               ? `Connected to ${metaState.adAccountId ?? "your configured ad account"}`
               : "Set META_ACCESS_TOKEN and META_AD_ACCOUNT_ID to switch from demo data to live Meta reporting."}
           </span>
           {metaState?.sourceMode === "live" && metaConnectionData?.connected ? (
-            <span style={{ color: "#475569" }}>
+            <span style={{ color: "var(--dash-subtle)" }}>
               Verified account: {metaConnectionData.account?.name ?? metaConnectionData.adAccountId}
             </span>
           ) : null}
-          <span style={{ color: "#475569" }}>
+          <span style={{ color: "var(--dash-subtle)" }}>
             Last success: {lastSuccessfulRefreshLabel}
           </span>
           <span
@@ -393,7 +395,7 @@ function DashboardContent() {
             Latest run: {latestRefreshStatus ?? "none"}
           </span>
           {refreshStatusData?.latestFinishedAt ? (
-            <span style={{ color: "#475569" }}>
+            <span style={{ color: "var(--dash-subtle)" }}>
               Finished: {latestRefreshFinishedLabel}
             </span>
           ) : null}
@@ -411,7 +413,7 @@ function DashboardContent() {
       >
         <div
           className="absolute inset-0"
-          style={{ background: "linear-gradient(135deg, rgba(13,15,20,0.7) 0%, rgba(13,15,20,0.9) 60%)" }}
+          style={{ background: "var(--dash-hero-overlay)" }}
         />
         <div className="relative z-10 max-w-4xl">
           <motion.div
@@ -434,7 +436,7 @@ function DashboardContent() {
               and generated{" "}
               <span style={{ color: "#00E676" }}>{totalLeads} leads</span>
             </h2>
-            <p className="text-sm" style={{ color: "#64748B" }}>
+            <p className="text-sm" style={{ color: "var(--dash-muted)" }}>
               vs. your CPL target of{" "}
               <span style={{ color: "#00D4FF" }} className="font-mono font-semibold">
                 ${cplTarget.toFixed(2)}
@@ -468,19 +470,19 @@ function DashboardContent() {
               >
                 Meta Graph connection check failed
               </p>
-              <p className="text-xs font-mono" style={{ color: "#E2E8F0" }}>
+              <p className="text-xs font-mono" style={{ color: "var(--dash-text)" }}>
                 {metaConnectionData.errorMessage ?? "Unable to validate Meta credentials"}
               </p>
-              <p className="text-[11px] font-mono" style={{ color: "#94A3B8" }}>
-                Confirm the token has <span style={{ color: "#E2E8F0" }}>ads_read</span> access
+              <p className="text-[11px] font-mono" style={{ color: "var(--dash-text-soft)" }}>
+                Confirm the token has <span style={{ color: "var(--dash-text)" }}>ads_read</span> access
                 and that ad account{" "}
-                <span style={{ color: "#E2E8F0" }}>
+                <span style={{ color: "var(--dash-text)" }}>
                   {metaConnectionData.adAccountId ?? metaState.adAccountId ?? "unknown"}
                 </span>{" "}
                 is shared to that token.
               </p>
               {metaConnectionData.fbtraceId ? (
-                <p className="text-[11px] font-mono" style={{ color: "#94A3B8" }}>
+                <p className="text-[11px] font-mono" style={{ color: "var(--dash-text-soft)" }}>
                   fbtrace_id: {metaConnectionData.fbtraceId}
                 </p>
               ) : null}
@@ -504,11 +506,11 @@ function DashboardContent() {
               >
                 Latest refresh failed
               </p>
-              <p className="text-xs font-mono" style={{ color: "#CBD5E1" }}>
+              <p className="text-xs font-mono" style={{ color: "var(--dash-text)" }}>
                 {refreshStatusData?.latestErrorMessage ?? "Unknown refresh failure"}
               </p>
               {refreshStatusData?.latestFailedPresets?.length ? (
-                <p className="text-[11px] font-mono" style={{ color: "#94A3B8" }}>
+                <p className="text-[11px] font-mono" style={{ color: "var(--dash-text-soft)" }}>
                   Failed presets: {refreshStatusData.latestFailedPresets.join(" · ")}
                 </p>
               ) : null}
@@ -583,16 +585,16 @@ function DashboardContent() {
           {/* CPL by Campaign — dynamic colors */}
           <div className="lg:col-span-2 glow-card rounded-lg p-5">
             <SectionLabel icon={<TrendingUp size={13} />} label="Cost per Lead by Campaign" />
-            <p className="text-xs mt-1 mb-4" style={{ color: "#475569" }}>
+            <p className="text-xs mt-1 mb-4" style={{ color: "var(--dash-subtle)" }}>
               Sorted by CPL ascending · Colors update with your CPL target · Dashed line = your target ($
               {cplTarget.toFixed(2)})
             </p>
             <ResponsiveContainer width="100%" height={280}>
               <BarChart data={cplChartData} layout="vertical" margin={{ left: 8, right: 50, top: 4, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--dash-chart-grid)" horizontal={false} />
                 <XAxis
                   type="number"
-                  tick={{ fill: "#475569", fontSize: 10, fontFamily: "JetBrains Mono" }}
+                  tick={{ fill: "var(--dash-subtle)", fontSize: 10, fontFamily: "JetBrains Mono" }}
                   tickFormatter={v => `$${v}`}
                   axisLine={false}
                   tickLine={false}
@@ -601,7 +603,7 @@ function DashboardContent() {
                   type="category"
                   dataKey="name"
                   width={170}
-                  tick={{ fill: "#64748B", fontSize: 9, fontFamily: "JetBrains Mono" }}
+                  tick={{ fill: "var(--dash-muted)", fontSize: 9, fontFamily: "JetBrains Mono" }}
                   axisLine={false}
                   tickLine={false}
                 />
@@ -631,7 +633,7 @@ function DashboardContent() {
           {/* Spend by Objective Donut */}
           <div className="glow-card rounded-lg p-5">
             <SectionLabel icon={<DollarSign size={13} />} label="Spend by Objective" />
-            <p className="text-xs mt-1 mb-2" style={{ color: "#475569" }}>
+            <p className="text-xs mt-1 mb-2" style={{ color: "var(--dash-subtle)" }}>
               Total: ${totalSpend.toLocaleString("en-US", { minimumFractionDigits: 2 })}
             </p>
             <ResponsiveContainer width="100%" height={200}>
@@ -643,7 +645,7 @@ function DashboardContent() {
                 </Pie>
                 <Tooltip
                   formatter={(v: number) => [`$${v.toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "Spent"]}
-                  contentStyle={{ background: "#13161E", border: "1px solid rgba(0,212,255,0.2)", borderRadius: "8px", fontSize: "11px", fontFamily: "JetBrains Mono" }}
+                  contentStyle={{ background: "var(--dash-panel-solid)", border: "1px solid rgba(0,212,255,0.2)", borderRadius: "8px", fontSize: "11px", fontFamily: "JetBrains Mono" }}
                 />
               </PieChart>
             </ResponsiveContainer>
@@ -656,14 +658,14 @@ function DashboardContent() {
                       style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }}
                     />
                     <div className="flex flex-col">
-                      <span style={{ color: "#94A3B8" }}>{d.name}</span>
-                      <span style={{ color: "#475569", fontSize: "10px" }}>
+                      <span style={{ color: "var(--dash-text-soft)" }}>{d.name}</span>
+                      <span style={{ color: "var(--dash-subtle)", fontSize: "10px" }}>
                         {d.leads} leads · {d.campaigns} campaign{d.campaigns !== 1 ? "s" : ""}
                         {d.costPerLead != null ? ` · $${d.costPerLead.toFixed(2)} CPL` : ""}
                       </span>
                     </div>
                   </div>
-                  <span style={{ color: "#E2E8F0" }}>
+                  <span style={{ color: "var(--dash-text)" }}>
                     ${d.value.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                   </span>
                 </div>
@@ -676,14 +678,14 @@ function DashboardContent() {
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="glow-card rounded-lg p-5">
             <SectionLabel icon={<Target size={13} />} label="Lead Volume by Campaign" />
-            <p className="text-xs mt-1 mb-4" style={{ color: "#475569" }}>
+            <p className="text-xs mt-1 mb-4" style={{ color: "var(--dash-subtle)" }}>
               Bar color reflects CPL performance vs. your target
             </p>
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={leadsChartData} margin={{ left: 0, right: 16, top: 4, bottom: 60 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-                <XAxis dataKey="name" tick={{ fill: "#475569", fontSize: 9, fontFamily: "JetBrains Mono" }} angle={-35} textAnchor="end" interval={0} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: "#475569", fontSize: 10, fontFamily: "JetBrains Mono" }} axisLine={false} tickLine={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--dash-chart-grid)" vertical={false} />
+                <XAxis dataKey="name" tick={{ fill: "var(--dash-subtle)", fontSize: 9, fontFamily: "JetBrains Mono" }} angle={-35} textAnchor="end" interval={0} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: "var(--dash-subtle)", fontSize: 10, fontFamily: "JetBrains Mono" }} axisLine={false} tickLine={false} />
                 <Tooltip content={<DarkTooltip />} />
                 <Bar dataKey="leads" name="Leads" radius={[3, 3, 0, 0]}>
                   {leadsChartData.map((d, i) => (
@@ -696,7 +698,7 @@ function DashboardContent() {
 
           <div className="glow-card rounded-lg p-5">
             <SectionLabel icon={<RefreshCw size={13} />} label="Daily Spend & Lead Trend" />
-            <p className="text-xs mt-1 mb-4" style={{ color: "#475569" }}>
+            <p className="text-xs mt-1 mb-4" style={{ color: "var(--dash-subtle)" }}>
               Persisted 30-day account series from the latest refresh
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
@@ -748,10 +750,10 @@ function DashboardContent() {
                     <stop offset="95%" stopColor="#00E676" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-                <XAxis dataKey="day" tick={{ fill: "#475569", fontSize: 9, fontFamily: "JetBrains Mono" }} interval={4} axisLine={false} tickLine={false} />
-                <YAxis yAxisId="left" tick={{ fill: "#475569", fontSize: 10, fontFamily: "JetBrains Mono" }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-                <YAxis yAxisId="right" orientation="right" tick={{ fill: "#475569", fontSize: 10, fontFamily: "JetBrains Mono" }} axisLine={false} tickLine={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--dash-chart-grid)" vertical={false} />
+                <XAxis dataKey="day" tick={{ fill: "var(--dash-subtle)", fontSize: 9, fontFamily: "JetBrains Mono" }} interval={4} axisLine={false} tickLine={false} />
+                <YAxis yAxisId="left" tick={{ fill: "var(--dash-subtle)", fontSize: 10, fontFamily: "JetBrains Mono" }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
+                <YAxis yAxisId="right" orientation="right" tick={{ fill: "var(--dash-subtle)", fontSize: 10, fontFamily: "JetBrains Mono" }} axisLine={false} tickLine={false} />
                 <Tooltip content={<DarkTooltip />} />
                 <Area yAxisId="left" type="monotone" dataKey="spent" name="Amount Spent ($)" stroke="#00D4FF" strokeWidth={1.5} fill="url(#spendGrad)" />
                 <Area yAxisId="right" type="monotone" dataKey="leads" name="Leads" stroke="#00E676" strokeWidth={1.5} fill="url(#leadsGrad)" />
@@ -763,7 +765,7 @@ function DashboardContent() {
         {/* ── CAMPAIGN TABLE ───────────────────────────────── */}
         <section>
           <SectionLabel icon={<BarChart2 size={13} />} label="Campaign Breakdown" />
-          <p className="text-xs mt-1 mb-3" style={{ color: "#475569" }}>
+          <p className="text-xs mt-1 mb-3" style={{ color: "var(--dash-subtle)" }}>
             All highlights update live with your CPL target · Click any row to expand · Sort by any column
           </p>
           <CampaignTable campaigns={campaigns} />
@@ -774,12 +776,12 @@ function DashboardContent() {
           {/* Winners */}
           <div className="glow-card rounded-lg p-5">
             <SectionLabel icon={<CheckCircle size={13} />} label="On Target" color="#00E676" />
-            <p className="text-xs mt-1 mb-4" style={{ color: "#475569" }}>
+            <p className="text-xs mt-1 mb-4" style={{ color: "var(--dash-subtle)" }}>
               Campaigns with CPL ≤ your target of{" "}
               <span className="font-mono" style={{ color: "#00D4FF" }}>${cplTarget.toFixed(2)}</span>
             </p>
             {excellentCampaigns.length === 0 ? (
-              <p className="text-xs font-mono" style={{ color: "#475569" }}>
+              <p className="text-xs font-mono" style={{ color: "var(--dash-subtle)" }}>
                 No campaigns meet this target. Try raising your CPL goal.
               </p>
             ) : (
@@ -797,7 +799,7 @@ function DashboardContent() {
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div>
-                          <p className="text-sm font-semibold mb-1" style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#CBD5E1" }}>
+                          <p className="text-sm font-semibold mb-1" style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--dash-text)" }}>
                             {c.displayName ?? c.shortName}
                           </p>
                           <div className="flex gap-3 flex-wrap">
@@ -818,14 +820,14 @@ function DashboardContent() {
           {/* Over Target */}
           <div className="glow-card rounded-lg p-5">
             <SectionLabel icon={<AlertTriangle size={13} />} label="Over Target" color="#FF3B5C" />
-            <p className="text-xs mt-1 mb-4" style={{ color: "#475569" }}>
+            <p className="text-xs mt-1 mb-4" style={{ color: "var(--dash-subtle)" }}>
               Campaigns with CPL &gt; 1.5× your target ·{" "}
               <span style={{ color: "#FF3B5C" }}>
                 ${wastedSpend.toLocaleString("en-US", { minimumFractionDigits: 2 })} at risk
               </span>
             </p>
             {poorCampaigns.length === 0 ? (
-              <p className="text-xs font-mono" style={{ color: "#475569" }}>
+              <p className="text-xs font-mono" style={{ color: "var(--dash-subtle)" }}>
                 All campaigns are within 1.5× of your target. 
               </p>
             ) : (
@@ -843,7 +845,7 @@ function DashboardContent() {
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div>
-                          <p className="text-sm font-semibold mb-1" style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#CBD5E1" }}>
+                          <p className="text-sm font-semibold mb-1" style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--dash-text)" }}>
                             {c.displayName ?? c.shortName}
                           </p>
                           <div className="flex gap-3 flex-wrap">
@@ -852,7 +854,7 @@ function DashboardContent() {
                             <Stat label="Leads" value={String(c.leads)} color="#94A3B8" />
                             <Stat label="CPM" value={`$${c.cpm.toFixed(2)}`} color="#FF3B5C" />
                           </div>
-                          <p className="text-xs mt-2 leading-relaxed" style={{ color: "#64748B" }}>
+                          <p className="text-xs mt-2 leading-relaxed" style={{ color: "var(--dash-muted)" }}>
                             {c.recommendation}
                           </p>
                         </div>
@@ -868,20 +870,20 @@ function DashboardContent() {
         {/* ── ACTION ITEMS ─────────────────────────────────── */}
         <section>
           <SectionLabel icon={<Zap size={13} />} label="Actionable Next Steps" />
-          <p className="text-xs mt-1 mb-4" style={{ color: "#475569" }}>
+          <p className="text-xs mt-1 mb-4" style={{ color: "var(--dash-subtle)" }}>
             Prioritized recommendations based on performance data and Meta's optimization mechanics
           </p>
           <ActionPanel items={actionItems} />
         </section>
 
         {/* ── FOOTER ───────────────────────────────────────── */}
-        <footer className="py-6 border-t" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
+        <footer className="py-6 border-t" style={{ borderColor: "var(--dash-border)" }}>
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-            <p className="text-xs font-mono" style={{ color: "#334155" }}>
+            <p className="text-xs font-mono" style={{ color: "var(--dash-subtle)" }}>
               Data source: {dataSourceLabel}
               {metaState?.adAccountId ? ` · Account: ${metaState.adAccountId}` : ""}
             </p>
-            <p className="text-xs font-mono" style={{ color: "#334155" }}>
+            <p className="text-xs font-mono" style={{ color: "var(--dash-subtle)" }}>
               Reporting window: {reportDateRange}
             </p>
           </div>
@@ -910,7 +912,7 @@ function SectionLabel({
       <span style={{ color }}>{icon}</span>
       <h3
         className="text-xs font-bold uppercase tracking-widest"
-        style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#64748B" }}
+        style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--dash-muted)" }}
       >
         {label}
       </h3>
@@ -921,7 +923,7 @@ function SectionLabel({
 function Stat({ label, value, color }: { label: string; value: string; color: string }) {
   return (
     <div className="flex flex-col">
-      <span className="text-[9px] font-mono uppercase tracking-widest" style={{ color: "#334155" }}>
+      <span className="text-[9px] font-mono uppercase tracking-widest" style={{ color: "var(--dash-subtle)" }}>
         {label}
       </span>
       <span className="text-xs font-mono font-semibold" style={{ color }}>
@@ -946,17 +948,17 @@ function PulseCard({
     <div
       className="rounded-md p-3"
       style={{
-        background: "rgba(255,255,255,0.03)",
-        border: "1px solid rgba(255,255,255,0.05)",
+        background: "var(--dash-panel-soft)",
+        border: "1px solid var(--dash-border)",
       }}
     >
-      <div className="text-[9px] font-mono uppercase tracking-widest" style={{ color: "#475569" }}>
+      <div className="text-[9px] font-mono uppercase tracking-widest" style={{ color: "var(--dash-subtle)" }}>
         {label}
       </div>
       <div className="text-base font-semibold mt-1" style={{ color, fontFamily: "'Space Grotesk', sans-serif" }}>
         {value}
       </div>
-      <div className="text-[10px] font-mono mt-1" style={{ color: "#64748B" }}>
+      <div className="text-[10px] font-mono mt-1" style={{ color: "var(--dash-muted)" }}>
         {subValue}
       </div>
     </div>

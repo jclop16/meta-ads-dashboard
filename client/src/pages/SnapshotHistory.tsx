@@ -1,5 +1,5 @@
 // SnapshotHistory — date range performance comparison across all stored snapshots
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -14,6 +14,7 @@ import {
 import { trpc } from "@/lib/trpc";
 import { useCplTarget } from "@/contexts/CplTargetContext";
 import RefreshButton from "@/components/RefreshButton";
+import ThemeToggle from "@/components/ThemeToggle";
 
 // ── Types ─────────────────────────────────────────────────────
 type SortKey = "shortName" | "amountSpent" | "leads" | "costPerLead" | "ctrAll";
@@ -27,12 +28,12 @@ function DarkTooltip({ active, payload, label }: any) {
     <div
       className="rounded-lg p-3 text-xs font-mono"
       style={{
-        background: "#13161E",
-        border: "1px solid rgba(0,212,255,0.2)",
-        boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
+        background: "var(--dash-panel-solid)",
+        border: "1px solid color-mix(in srgb, var(--color-cyan) 22%, var(--dash-border))",
+        boxShadow: "var(--dash-shadow)",
       }}
     >
-      <p className="mb-1 font-semibold" style={{ color: "#94A3B8" }}>{label}</p>
+      <p className="mb-1 font-semibold" style={{ color: "var(--dash-text-soft)" }}>{label}</p>
       {payload.map((p: any, i: number) => (
         <p key={i} style={{ color: p.color || "#00D4FF" }}>
           {p.name}: {p.value}
@@ -44,10 +45,10 @@ function DarkTooltip({ active, payload, label }: any) {
 
 // ── Delta badge ───────────────────────────────────────────────
 function Delta({ value, inverse = false }: { value: number | null; inverse?: boolean }) {
-  if (value == null || isNaN(value)) return <span style={{ color: "#475569" }}>—</span>;
+  if (value == null || isNaN(value)) return <span style={{ color: "var(--dash-subtle)" }}>—</span>;
   const isPositive = inverse ? value < 0 : value > 0;
   const isNeutral = value === 0;
-  const color = isNeutral ? "#475569" : isPositive ? "#00E676" : "#FF3B5C";
+  const color = isNeutral ? "var(--dash-subtle)" : isPositive ? "#00E676" : "#FF3B5C";
   const Icon = isNeutral ? Minus : isPositive ? ArrowUpRight : ArrowDownRight;
   return (
     <span className="inline-flex items-center gap-0.5 text-[10px] font-mono" style={{ color }}>
@@ -58,13 +59,13 @@ function Delta({ value, inverse = false }: { value: number | null; inverse?: boo
 }
 
 // ── Section label ─────────────────────────────────────────────
-function SectionLabel({ icon, label }: { icon: React.ReactNode; label: string }) {
+function SectionLabel({ icon, label }: { icon: ReactNode; label: string }) {
   return (
     <div className="flex items-center gap-2 mb-1">
       <span style={{ color: "#00D4FF" }}>{icon}</span>
       <span
         className="text-[11px] font-bold tracking-widest uppercase"
-        style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#64748B" }}
+        style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--dash-muted)" }}
       >
         {label}
       </span>
@@ -90,11 +91,11 @@ function StatCard({
     <div
       className="rounded-lg p-4"
       style={{
-        background: "rgba(255,255,255,0.02)",
-        border: "1px solid rgba(255,255,255,0.05)",
+        background: "var(--dash-panel)",
+        border: "1px solid var(--dash-border)",
       }}
     >
-      <p className="text-[10px] font-mono uppercase tracking-widest mb-1" style={{ color: "#475569" }}>
+      <p className="text-[10px] font-mono uppercase tracking-widest mb-1" style={{ color: "var(--dash-subtle)" }}>
         {label}
       </p>
       <p
@@ -110,7 +111,7 @@ function StatCard({
 
 // ── Sort icon ─────────────────────────────────────────────────
 function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; sortDir: SortDir }) {
-  if (col !== sortKey) return <ChevronsUpDown size={10} style={{ color: "#334155" }} />;
+  if (col !== sortKey) return <ChevronsUpDown size={10} style={{ color: "var(--dash-subtle)" }} />;
   return sortDir === "asc"
     ? <ArrowUp size={10} style={{ color: "#00D4FF" }} />
     : <ArrowDown size={10} style={{ color: "#00D4FF" }} />;
@@ -131,7 +132,7 @@ function SortTh({
   return (
     <th
       className={`py-3 px-4 text-[10px] font-mono uppercase tracking-widest cursor-pointer select-none group ${align === "right" ? "text-right" : "text-left"}`}
-      style={{ color: isActive ? "#00D4FF" : "#475569" }}
+      style={{ color: isActive ? "#00D4FF" : "var(--dash-subtle)" }}
       onClick={() => onSort(col)}
     >
       <span className={`inline-flex items-center gap-1 ${align === "right" ? "justify-end" : "justify-start"}`}>
@@ -148,9 +149,9 @@ function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }
     <span
       className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded-full"
       style={{
-        background: "rgba(0,212,255,0.1)",
-        border: "1px solid rgba(0,212,255,0.25)",
-        color: "#00D4FF",
+        background: "color-mix(in srgb, var(--color-cyan) 10%, var(--dash-panel-soft))",
+        border: "1px solid color-mix(in srgb, var(--color-cyan) 28%, var(--dash-border))",
+        color: "var(--color-cyan)",
       }}
     >
       {label}
@@ -173,19 +174,19 @@ function CampaignRow({ c, getColor }: {
     <>
       <tr
         className="cursor-pointer transition-colors hover:brightness-125"
-        style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
+        style={{ borderBottom: "1px solid var(--dash-border)" }}
         onClick={() => setExpanded(e => !e)}
       >
         <td className="py-3 px-4">
           <div className="flex items-center gap-2">
             <div className="w-1.5 h-6 rounded-full flex-shrink-0" style={{ background: cplColor }} />
             <div>
-              <span className="text-xs font-mono block" style={{ color: "#CBD5E1" }}>{c.shortName}</span>
+              <span className="text-xs font-mono block" style={{ color: "var(--dash-text)" }}>{c.shortName}</span>
               <span
                 className="text-[9px] font-mono px-1.5 py-0.5 rounded mt-0.5 inline-block"
                 style={{
-                  background: "rgba(255,255,255,0.04)",
-                  color: "#64748B",
+                  background: "var(--dash-panel-soft)",
+                  color: "var(--dash-muted)",
                 }}
               >
                 {c.objective}
@@ -193,7 +194,7 @@ function CampaignRow({ c, getColor }: {
             </div>
           </div>
         </td>
-        <td className="py-3 px-4 text-right font-mono text-xs" style={{ color: "#94A3B8" }}>
+        <td className="py-3 px-4 text-right font-mono text-xs" style={{ color: "var(--dash-text-soft)" }}>
           ${c.amountSpent.toLocaleString("en-US", { minimumFractionDigits: 2 })}
         </td>
         <td className="py-3 px-4 text-right font-mono text-xs" style={{ color: "#00E676" }}>
@@ -202,11 +203,11 @@ function CampaignRow({ c, getColor }: {
         <td className="py-3 px-4 text-right font-mono text-xs font-bold" style={{ color: cplColor }}>
           {c.costPerLead != null ? `$${c.costPerLead.toFixed(2)}` : "N/A"}
         </td>
-        <td className="py-3 px-4 text-right font-mono text-xs" style={{ color: "#64748B" }}>
+        <td className="py-3 px-4 text-right font-mono text-xs" style={{ color: "var(--dash-muted)" }}>
           {c.ctrAll.toFixed(2)}%
         </td>
         <td className="py-3 px-4 text-center">
-          {expanded ? <ChevronUp size={12} style={{ color: "#475569" }} /> : <ChevronDown size={12} style={{ color: "#475569" }} />}
+          {expanded ? <ChevronUp size={12} style={{ color: "var(--dash-subtle)" }} /> : <ChevronDown size={12} style={{ color: "var(--dash-subtle)" }} />}
         </td>
       </tr>
       <AnimatePresence>
@@ -220,16 +221,19 @@ function CampaignRow({ c, getColor }: {
             <td colSpan={6} className="px-4 pb-3">
               <div
                 className="rounded-lg p-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono"
-                style={{ background: "rgba(0,212,255,0.03)", border: "1px solid rgba(0,212,255,0.08)" }}
+                style={{
+                  background: "color-mix(in srgb, var(--color-cyan) 4%, var(--dash-panel-soft))",
+                  border: "1px solid color-mix(in srgb, var(--color-cyan) 18%, var(--dash-border))",
+                }}
               >
-                <div><span style={{ color: "#475569" }}>Impressions</span><br /><span style={{ color: "#CBD5E1" }}>{c.impressions.toLocaleString()}</span></div>
-                <div><span style={{ color: "#475569" }}>Reach</span><br /><span style={{ color: "#CBD5E1" }}>{c.reach.toLocaleString()}</span></div>
-                <div><span style={{ color: "#475569" }}>Frequency</span><br /><span style={{ color: "#CBD5E1" }}>{c.frequency.toFixed(2)}×</span></div>
-                <div><span style={{ color: "#475569" }}>CPM</span><br /><span style={{ color: "#CBD5E1" }}>${c.cpm.toFixed(2)}</span></div>
-                <div><span style={{ color: "#475569" }}>Clicks (all)</span><br /><span style={{ color: "#CBD5E1" }}>{c.clicksAll.toLocaleString()}</span></div>
-                <div><span style={{ color: "#475569" }}>Link clicks</span><br /><span style={{ color: "#CBD5E1" }}>{c.linkClicks.toLocaleString()}</span></div>
-                <div><span style={{ color: "#475569" }}>CPC (all)</span><br /><span style={{ color: "#CBD5E1" }}>${c.cpcAll.toFixed(4)}</span></div>
-                <div><span style={{ color: "#475569" }}>CPC (link)</span><br /><span style={{ color: "#CBD5E1" }}>${c.cpcLink.toFixed(4)}</span></div>
+                <div><span style={{ color: "var(--dash-subtle)" }}>Impressions</span><br /><span style={{ color: "var(--dash-text)" }}>{c.impressions.toLocaleString()}</span></div>
+                <div><span style={{ color: "var(--dash-subtle)" }}>Reach</span><br /><span style={{ color: "var(--dash-text)" }}>{c.reach.toLocaleString()}</span></div>
+                <div><span style={{ color: "var(--dash-subtle)" }}>Frequency</span><br /><span style={{ color: "var(--dash-text)" }}>{c.frequency.toFixed(2)}×</span></div>
+                <div><span style={{ color: "var(--dash-subtle)" }}>CPM</span><br /><span style={{ color: "var(--dash-text)" }}>${c.cpm.toFixed(2)}</span></div>
+                <div><span style={{ color: "var(--dash-subtle)" }}>Clicks (all)</span><br /><span style={{ color: "var(--dash-text)" }}>{c.clicksAll.toLocaleString()}</span></div>
+                <div><span style={{ color: "var(--dash-subtle)" }}>Link clicks</span><br /><span style={{ color: "var(--dash-text)" }}>{c.linkClicks.toLocaleString()}</span></div>
+                <div><span style={{ color: "var(--dash-subtle)" }}>CPC (all)</span><br /><span style={{ color: "var(--dash-text)" }}>${c.cpcAll.toFixed(4)}</span></div>
+                <div><span style={{ color: "var(--dash-subtle)" }}>CPC (link)</span><br /><span style={{ color: "var(--dash-text)" }}>${c.cpcLink.toFixed(4)}</span></div>
               </div>
             </td>
           </motion.tr>
@@ -369,16 +373,16 @@ export default function SnapshotHistory() {
 
   return (
     <div
-      className="min-h-screen"
-      style={{ background: "#0D0F14", fontFamily: "'Inter', sans-serif" }}
+      className="dashboard-page min-h-screen overflow-x-hidden"
+      style={{ fontFamily: "'Inter', sans-serif" }}
     >
       {/* ── Header ─────────────────────────────────────────── */}
       <header
         className="sticky top-0 z-50 px-4 sm:px-6 py-3 flex items-center justify-between gap-3 flex-wrap"
         style={{
-          background: "rgba(13,15,20,0.92)",
+          background: "var(--dash-header)",
           backdropFilter: "blur(12px)",
-          borderBottom: "1px solid rgba(0,212,255,0.08)",
+          borderBottom: "1px solid var(--dash-border)",
         }}
       >
         <div className="flex items-center gap-3">
@@ -386,9 +390,9 @@ export default function SnapshotHistory() {
             href="/"
             className="text-xs font-mono px-3 py-1.5 rounded-lg transition-colors hover:brightness-125"
             style={{
-              color: "#64748B",
-              background: "rgba(255,255,255,0.03)",
-              border: "1px solid rgba(255,255,255,0.06)",
+              color: "var(--dash-text-soft)",
+              background: "var(--dash-panel-soft)",
+              border: "1px solid var(--dash-border)",
             }}
           >
             ← Dashboard
@@ -396,16 +400,19 @@ export default function SnapshotHistory() {
           <div>
             <h1
               className="text-sm font-bold leading-none"
-              style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#E2E8F0" }}
+              style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--dash-text)" }}
             >
               Performance History
             </h1>
-            <p className="text-[10px] mt-0.5 font-mono" style={{ color: "#475569" }}>
+            <p className="text-[10px] mt-0.5 font-mono" style={{ color: "var(--dash-subtle)" }}>
               Date range snapshots · Legacy Empowerment Group
             </p>
           </div>
         </div>
-        <RefreshButton onRefreshComplete={() => setSelectedId(null)} />
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <RefreshButton onRefreshComplete={() => setSelectedId(null)} />
+        </div>
       </header>
 
       <main className="px-4 sm:px-6 py-6 max-w-[1440px] mx-auto space-y-8">
@@ -419,17 +426,20 @@ export default function SnapshotHistory() {
           >
             <div
               className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
-              style={{ background: "rgba(0,212,255,0.08)", border: "1px solid rgba(0,212,255,0.15)" }}
+              style={{
+                background: "color-mix(in srgb, var(--color-cyan) 10%, var(--dash-panel-soft))",
+                border: "1px solid color-mix(in srgb, var(--color-cyan) 26%, var(--dash-border))",
+              }}
             >
               <Calendar size={28} style={{ color: "#00D4FF" }} />
             </div>
             <h2
               className="text-lg font-bold mb-2"
-              style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#E2E8F0" }}
+              style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--dash-text)" }}
             >
               No snapshots yet
             </h2>
-            <p className="text-sm mb-6" style={{ color: "#475569", maxWidth: 380 }}>
+            <p className="text-sm mb-6" style={{ color: "var(--dash-muted)", maxWidth: 380 }}>
               Click <strong style={{ color: "#00D4FF" }}>Refresh from Meta Ads</strong> to pull live
               performance data for all date ranges and store them here for comparison.
             </p>
@@ -454,12 +464,16 @@ export default function SnapshotHistory() {
                       }}
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
-                      className="px-4 py-2 rounded-lg text-xs font-semibold transition-all duration-200"
-                      style={{
+                        className="px-4 py-2 rounded-lg text-xs font-semibold transition-all duration-200"
+                        style={{
                         fontFamily: "'Space Grotesk', sans-serif",
-                        background: isActive ? "rgba(0,212,255,0.12)" : "rgba(255,255,255,0.03)",
-                        border: `1px solid ${isActive ? "rgba(0,212,255,0.4)" : "rgba(255,255,255,0.06)"}`,
-                        color: isActive ? "#00D4FF" : "#64748B",
+                        background: isActive
+                          ? "color-mix(in srgb, var(--color-cyan) 12%, var(--dash-panel-soft))"
+                          : "var(--dash-panel-soft)",
+                        border: `1px solid ${isActive
+                          ? "color-mix(in srgb, var(--color-cyan) 38%, var(--dash-border))"
+                          : "var(--dash-border)"}`,
+                        color: isActive ? "#00D4FF" : "var(--dash-text-soft)",
                         boxShadow: isActive ? "0 0 12px rgba(0,212,255,0.1)" : "none",
                       }}
                     >
@@ -469,7 +483,7 @@ export default function SnapshotHistory() {
                           PARTIAL
                         </span>
                       )}
-                      <div className="text-[9px] font-mono mt-0.5" style={{ color: "#475569" }}>
+                      <div className="text-[9px] font-mono mt-0.5" style={{ color: "var(--dash-subtle)" }}>
                         {s.dateRangeSince} → {s.dateRangeUntil}
                       </div>
                     </motion.button>
@@ -508,14 +522,14 @@ export default function SnapshotHistory() {
 
             {/* ── Comparison charts ────────────────────────── */}
             <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <div className="rounded-lg p-5" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
+              <div className="rounded-lg p-5" style={{ background: "var(--dash-panel)", border: "1px solid var(--dash-border)" }}>
                 <SectionLabel icon={<TrendingUp size={13} />} label="Cost per Lead by Date Range" />
-                <p className="text-xs mt-1 mb-4" style={{ color: "#475569" }}>Colors relative to your CPL target (${cplTarget.toFixed(2)})</p>
+                <p className="text-xs mt-1 mb-4" style={{ color: "var(--dash-subtle)" }}>Colors relative to your CPL target (${cplTarget.toFixed(2)})</p>
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={cplChartData} margin={{ left: 0, right: 16, top: 4, bottom: 4 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-                    <XAxis dataKey="name" tick={{ fill: "#475569", fontSize: 9, fontFamily: "JetBrains Mono" }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: "#475569", fontSize: 9, fontFamily: "JetBrains Mono" }} tickFormatter={v => `$${v}`} axisLine={false} tickLine={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--dash-chart-grid)" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fill: "var(--dash-subtle)", fontSize: 9, fontFamily: "JetBrains Mono" }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: "var(--dash-subtle)", fontSize: 9, fontFamily: "JetBrains Mono" }} tickFormatter={v => `$${v}`} axisLine={false} tickLine={false} />
                     <Tooltip content={<DarkTooltip />} />
                     <Bar dataKey="cpl" name="Cost per Lead ($)" radius={[3, 3, 0, 0]}>
                       {cplChartData.map((d, i) => <Cell key={i} fill={d.color} fillOpacity={0.85} />)}
@@ -523,14 +537,14 @@ export default function SnapshotHistory() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-              <div className="rounded-lg p-5" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
+              <div className="rounded-lg p-5" style={{ background: "var(--dash-panel)", border: "1px solid var(--dash-border)" }}>
                 <SectionLabel icon={<DollarSign size={13} />} label="Amount Spent by Date Range" />
-                <p className="text-xs mt-1 mb-4" style={{ color: "#475569" }}>Total amount spent per reporting period</p>
+                <p className="text-xs mt-1 mb-4" style={{ color: "var(--dash-subtle)" }}>Total amount spent per reporting period</p>
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={spendChartData} margin={{ left: 0, right: 16, top: 4, bottom: 4 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-                    <XAxis dataKey="name" tick={{ fill: "#475569", fontSize: 9, fontFamily: "JetBrains Mono" }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: "#475569", fontSize: 9, fontFamily: "JetBrains Mono" }} tickFormatter={v => `$${(v / 1000).toFixed(0)}K`} axisLine={false} tickLine={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--dash-chart-grid)" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fill: "var(--dash-subtle)", fontSize: 9, fontFamily: "JetBrains Mono" }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: "var(--dash-subtle)", fontSize: 9, fontFamily: "JetBrains Mono" }} tickFormatter={v => `$${(v / 1000).toFixed(0)}K`} axisLine={false} tickLine={false} />
                     <Tooltip content={<DarkTooltip />} formatter={(v: number) => [`$${v.toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "Amount spent"]} />
                     <Bar dataKey="spend" name="Amount Spent ($)" radius={[3, 3, 0, 0]} fill="#00D4FF" fillOpacity={0.7} />
                   </BarChart>
@@ -544,7 +558,7 @@ export default function SnapshotHistory() {
                 <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
                   <SectionLabel icon={<Eye size={13} />} label={`Campaign Breakdown — ${activeSnap?.datePresetLabel ?? ""}`} />
                   {detail && (
-                    <span className="text-[10px] font-mono" style={{ color: "#475569" }}>
+                    <span className="text-[10px] font-mono" style={{ color: "var(--dash-subtle)" }}>
                       {filteredCampaigns.length} of {detail.campaigns.length} campaigns
                     </span>
                   )}
@@ -558,20 +572,20 @@ export default function SnapshotHistory() {
                       {/* Search */}
                       <div
                         className="flex items-center gap-2 px-3 py-2 rounded-lg flex-1 min-w-[180px] max-w-xs"
-                        style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}
+                        style={{ background: "var(--dash-panel-soft)", border: "1px solid var(--dash-border)" }}
                       >
-                        <Search size={12} style={{ color: "#475569", flexShrink: 0 }} />
+                        <Search size={12} style={{ color: "var(--dash-subtle)", flexShrink: 0 }} />
                         <input
                           type="text"
                           placeholder="Search campaigns…"
                           value={search}
                           onChange={e => setSearch(e.target.value)}
-                          className="bg-transparent text-xs font-mono outline-none w-full placeholder:text-[#334155]"
-                          style={{ color: "#CBD5E1" }}
+                          className="w-full bg-transparent text-xs font-mono outline-none"
+                          style={{ color: "var(--dash-text)" }}
                         />
                         {search && (
                           <button onClick={() => setSearch("")} className="hover:opacity-70">
-                            <X size={10} style={{ color: "#475569" }} />
+                            <X size={10} style={{ color: "var(--dash-subtle)" }} />
                           </button>
                         )}
                       </div>
@@ -585,12 +599,12 @@ export default function SnapshotHistory() {
                             className="text-[10px] font-mono px-2.5 py-1.5 rounded-lg transition-all"
                             style={{
                               background: statusFilter === s
-                                ? s === "all" ? "rgba(255,255,255,0.08)" : `${STATUS_COLORS[s]}18`
-                                : "rgba(255,255,255,0.02)",
+                                ? s === "all" ? "var(--dash-panel-soft)" : `${STATUS_COLORS[s]}18`
+                                : "var(--dash-panel-soft)",
                               border: `1px solid ${statusFilter === s
-                                ? s === "all" ? "rgba(255,255,255,0.15)" : `${STATUS_COLORS[s]}50`
-                                : "rgba(255,255,255,0.05)"}`,
-                              color: statusFilter === s ? STATUS_COLORS[s] : "#475569",
+                                ? s === "all" ? "var(--dash-border-strong)" : `${STATUS_COLORS[s]}50`
+                                : "var(--dash-border)"}`,
+                              color: statusFilter === s ? STATUS_COLORS[s] : "var(--dash-subtle)",
                             }}
                           >
                             {s === "all" ? "All" : s === "excellent" ? "On Target" : s === "moderate" ? "Moderate" : "Over Target"}
@@ -605,9 +619,9 @@ export default function SnapshotHistory() {
                             onClick={() => setObjectiveFilter("all")}
                             className="text-[10px] font-mono px-2.5 py-1.5 rounded-lg transition-all"
                             style={{
-                              background: objectiveFilter === "all" ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.02)",
-                              border: `1px solid ${objectiveFilter === "all" ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.05)"}`,
-                              color: objectiveFilter === "all" ? "#94A3B8" : "#475569",
+                              background: objectiveFilter === "all" ? "var(--dash-panel-soft)" : "var(--dash-panel-soft)",
+                              border: `1px solid ${objectiveFilter === "all" ? "var(--dash-border-strong)" : "var(--dash-border)"}`,
+                              color: objectiveFilter === "all" ? "var(--dash-text-soft)" : "var(--dash-subtle)",
                             }}
                           >
                             All Objectives
@@ -618,9 +632,13 @@ export default function SnapshotHistory() {
                               onClick={() => setObjectiveFilter(obj)}
                               className="text-[10px] font-mono px-2.5 py-1.5 rounded-lg transition-all"
                               style={{
-                                background: objectiveFilter === obj ? "rgba(0,212,255,0.1)" : "rgba(255,255,255,0.02)",
-                                border: `1px solid ${objectiveFilter === obj ? "rgba(0,212,255,0.3)" : "rgba(255,255,255,0.05)"}`,
-                                color: objectiveFilter === obj ? "#00D4FF" : "#475569",
+                                background: objectiveFilter === obj
+                                  ? "color-mix(in srgb, var(--color-cyan) 10%, var(--dash-panel-soft))"
+                                  : "var(--dash-panel-soft)",
+                                border: `1px solid ${objectiveFilter === obj
+                                  ? "color-mix(in srgb, var(--color-cyan) 30%, var(--dash-border))"
+                                  : "var(--dash-border)"}`,
+                                color: objectiveFilter === obj ? "#00D4FF" : "var(--dash-subtle)",
                               }}
                             >
                               {obj}
@@ -644,7 +662,7 @@ export default function SnapshotHistory() {
                     {/* Row 2: active filter chips */}
                     {activeFilters.length > 0 && (
                       <div className="flex flex-wrap gap-1.5 items-center">
-                        <span className="text-[10px] font-mono" style={{ color: "#334155" }}>Active filters:</span>
+                        <span className="text-[10px] font-mono" style={{ color: "var(--dash-subtle)" }}>Active filters:</span>
                         {activeFilters.map((f, i) => (
                           <FilterChip key={i} label={f.label} onRemove={f.clear} />
                         ))}
@@ -655,14 +673,14 @@ export default function SnapshotHistory() {
 
                 {/* ── Table ──────────────────────────────────── */}
                 {detailLoading ? (
-                  <div className="py-12 text-center text-xs font-mono" style={{ color: "#475569" }}>
+                  <div className="py-12 text-center text-xs font-mono" style={{ color: "var(--dash-subtle)" }}>
                     Loading campaign data…
                   </div>
                 ) : filteredCampaigns.length > 0 ? (
-                  <div className="rounded-lg overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.05)" }}>
-                    <table className="w-full">
+                  <div className="overflow-x-auto rounded-lg" style={{ border: "1px solid var(--dash-border)" }}>
+                    <table className="w-full min-w-[780px]">
                       <thead>
-                        <tr style={{ background: "rgba(255,255,255,0.03)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                        <tr style={{ background: "var(--dash-panel-soft)", borderBottom: "1px solid var(--dash-border)" }}>
                           <SortTh col="shortName" label="Campaign" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} align="left" />
                           <SortTh col="amountSpent" label="Amount Spent" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                           <SortTh col="leads" label="Leads" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
@@ -684,13 +702,13 @@ export default function SnapshotHistory() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     className="py-16 text-center rounded-lg"
-                    style={{ border: "1px solid rgba(255,255,255,0.05)" }}
+                    style={{ border: "1px solid var(--dash-border)", background: "var(--dash-panel)" }}
                   >
-                    <Search size={24} className="mx-auto mb-3" style={{ color: "#334155" }} />
-                    <p className="text-sm font-semibold mb-1" style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#64748B" }}>
+                    <Search size={24} className="mx-auto mb-3" style={{ color: "var(--dash-subtle)" }} />
+                    <p className="text-sm font-semibold mb-1" style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--dash-text-soft)" }}>
                       No campaigns match your filters
                     </p>
-                    <p className="text-xs font-mono mb-4" style={{ color: "#334155" }}>
+                    <p className="text-xs font-mono mb-4" style={{ color: "var(--dash-subtle)" }}>
                       Try adjusting the status, objective, or search term
                     </p>
                     <button
@@ -702,7 +720,7 @@ export default function SnapshotHistory() {
                     </button>
                   </motion.div>
                 ) : (
-                  <div className="py-8 text-center text-xs font-mono" style={{ color: "#475569" }}>
+                  <div className="py-8 text-center text-xs font-mono" style={{ color: "var(--dash-subtle)" }}>
                     No campaign data available for this snapshot.
                   </div>
                 )}
@@ -712,12 +730,12 @@ export default function SnapshotHistory() {
             {/* ── Snapshot summary table ───────────────────── */}
             <section className="pb-8">
               <SectionLabel icon={<Calendar size={13} />} label="All Snapshots Summary" />
-              <div className="rounded-lg overflow-hidden mt-3" style={{ border: "1px solid rgba(255,255,255,0.05)" }}>
-                <table className="w-full">
+              <div className="mt-3 overflow-x-auto rounded-lg" style={{ border: "1px solid var(--dash-border)" }}>
+                <table className="w-full min-w-[920px]">
                   <thead>
-                    <tr style={{ background: "rgba(255,255,255,0.03)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                    <tr style={{ background: "var(--dash-panel-soft)", borderBottom: "1px solid var(--dash-border)" }}>
                       {["Date Range", "Period", "Amount Spent", "Leads", "Cost per Lead", "CTR (all)", "CPM", "Last Fetched"].map((h, i) => (
-                        <th key={i} className={`py-3 px-4 text-[10px] font-mono uppercase tracking-widest ${i > 1 ? "text-right" : "text-left"}`} style={{ color: "#475569" }}>
+                        <th key={i} className={`py-3 px-4 text-[10px] font-mono uppercase tracking-widest ${i > 1 ? "text-right" : "text-left"}`} style={{ color: "var(--dash-subtle)" }}>
                           {h}
                         </th>
                       ))}
@@ -733,14 +751,16 @@ export default function SnapshotHistory() {
                           onClick={() => { setSelectedId(s.id); clearAllFilters(); }}
                           className="cursor-pointer transition-colors hover:brightness-125"
                           style={{
-                            borderBottom: "1px solid rgba(255,255,255,0.04)",
-                            background: isActive ? "rgba(0,212,255,0.04)" : "transparent",
+                            borderBottom: "1px solid var(--dash-border)",
+                            background: isActive
+                              ? "color-mix(in srgb, var(--color-cyan) 4%, var(--dash-panel-soft))"
+                              : "transparent",
                           }}
                         >
                           <td className="py-3 px-4">
                             <div className="flex items-center gap-2">
                               {isActive && <div className="w-1 h-4 rounded-full" style={{ background: "#00D4FF" }} />}
-                              <span className="text-xs font-semibold" style={{ fontFamily: "'Space Grotesk', sans-serif", color: isActive ? "#00D4FF" : "#CBD5E1" }}>
+                              <span className="text-xs font-semibold" style={{ fontFamily: "'Space Grotesk', sans-serif", color: isActive ? "#00D4FF" : "var(--dash-text)" }}>
                                 {s.datePresetLabel}
                               </span>
                               {s.isPartial && (
@@ -748,13 +768,13 @@ export default function SnapshotHistory() {
                               )}
                             </div>
                           </td>
-                          <td className="py-3 px-4 text-xs font-mono" style={{ color: "#64748B" }}>{s.dateRangeSince} → {s.dateRangeUntil}</td>
-                          <td className="py-3 px-4 text-right font-mono text-xs" style={{ color: "#94A3B8" }}>${s.amountSpent.toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                          <td className="py-3 px-4 text-xs font-mono" style={{ color: "var(--dash-muted)" }}>{s.dateRangeSince} → {s.dateRangeUntil}</td>
+                          <td className="py-3 px-4 text-right font-mono text-xs" style={{ color: "var(--dash-text-soft)" }}>${s.amountSpent.toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
                           <td className="py-3 px-4 text-right font-mono text-xs" style={{ color: "#00E676" }}>{s.leads}</td>
                           <td className="py-3 px-4 text-right font-mono text-xs font-bold" style={{ color: cplColor }}>${s.costPerLead.toFixed(2)}</td>
-                          <td className="py-3 px-4 text-right font-mono text-xs" style={{ color: "#64748B" }}>{s.ctrAll.toFixed(2)}%</td>
-                          <td className="py-3 px-4 text-right font-mono text-xs" style={{ color: "#64748B" }}>${s.cpm.toFixed(2)}</td>
-                          <td className="py-3 px-4 text-right font-mono text-[10px]" style={{ color: "#475569" }}>{new Date(s.fetchedAt).toLocaleString()}</td>
+                          <td className="py-3 px-4 text-right font-mono text-xs" style={{ color: "var(--dash-muted)" }}>{s.ctrAll.toFixed(2)}%</td>
+                          <td className="py-3 px-4 text-right font-mono text-xs" style={{ color: "var(--dash-muted)" }}>${s.cpm.toFixed(2)}</td>
+                          <td className="py-3 px-4 text-right font-mono text-[10px]" style={{ color: "var(--dash-subtle)" }}>{new Date(s.fetchedAt).toLocaleString()}</td>
                         </tr>
                       );
                     })}

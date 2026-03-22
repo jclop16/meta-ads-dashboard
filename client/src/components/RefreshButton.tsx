@@ -83,23 +83,23 @@ export default function RefreshButton({ onRefreshComplete }: RefreshButtonProps)
       className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 disabled:cursor-not-allowed"
       style={{
         background: isLoading
-          ? "rgba(0,212,255,0.05)"
+          ? "color-mix(in srgb, var(--color-cyan) 6%, var(--dash-panel))"
           : isSuccess
           ? "rgba(0,230,118,0.1)"
           : isError
           ? "rgba(255,59,92,0.1)"
-          : "rgba(0,212,255,0.1)",
+          : "color-mix(in srgb, var(--color-cyan) 10%, var(--dash-panel))",
         border: `1px solid ${
           isLoading
-            ? "rgba(0,212,255,0.15)"
+            ? "color-mix(in srgb, var(--color-cyan) 15%, var(--dash-border))"
             : isSuccess
             ? "rgba(0,230,118,0.3)"
             : isError
             ? "rgba(255,59,92,0.3)"
-            : "rgba(0,212,255,0.25)"
+            : "color-mix(in srgb, var(--color-cyan) 24%, var(--dash-border))"
         }`,
         color: isLoading
-          ? "rgba(0,212,255,0.5)"
+          ? "color-mix(in srgb, var(--color-cyan) 50%, var(--dash-text))"
           : isSuccess
           ? "#00E676"
           : isError

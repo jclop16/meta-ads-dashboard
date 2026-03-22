@@ -37,10 +37,10 @@ const accentMap = {
     dot: "#FF3B5C",
   },
   neutral: {
-    border: "rgba(255,255,255,0.08)",
-    glow: "rgba(255,255,255,0.02)",
-    text: "#E2E8F0",
-    dot: "#64748B",
+    border: "var(--dash-border)",
+    glow: "var(--dash-panel-soft)",
+    text: "var(--dash-text)",
+    dot: "var(--dash-muted)",
   },
 };
 
@@ -61,9 +61,9 @@ export default function MetricCard({
       transition={{ duration: 0.4, delay, ease: "easeOut" }}
       className="relative rounded-lg p-4 overflow-hidden group transition-all duration-200"
       style={{
-        background: `linear-gradient(135deg, ${colors.glow} 0%, rgba(13,15,20,0.8) 60%)`,
+        background: `linear-gradient(135deg, ${colors.glow} 0%, var(--dash-panel) 60%)`,
         border: `1px solid ${colors.border}`,
-        boxShadow: `0 0 0 1px rgba(0,0,0,0.3), inset 0 1px 0 ${colors.glow}`,
+        boxShadow: `0 0 0 1px var(--dash-border), inset 0 1px 0 ${colors.glow}`,
       }}
     >
       {/* Top accent line */}
@@ -74,7 +74,7 @@ export default function MetricCard({
 
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium uppercase tracking-widest mb-2" style={{ color: "#64748B" }}>
+          <p className="text-xs font-medium uppercase tracking-widest mb-2" style={{ color: "var(--dash-muted)" }}>
             {label}
           </p>
           <p
@@ -84,7 +84,7 @@ export default function MetricCard({
             {value}
           </p>
           {subValue && (
-            <p className="text-xs mt-1.5" style={{ color: "#475569" }}>
+            <p className="text-xs mt-1.5" style={{ color: "var(--dash-subtle)" }}>
               {subValue}
             </p>
           )}

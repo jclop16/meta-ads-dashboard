@@ -36,22 +36,22 @@ export default function CplTargetInput() {
     <div
       className="flex items-center gap-3 rounded-lg px-4 py-2.5"
       style={{
-        background: "rgba(0,212,255,0.05)",
-        border: "1px solid rgba(0,212,255,0.18)",
+        background: "color-mix(in srgb, var(--color-cyan) 8%, var(--dash-panel))",
+        border: "1px solid color-mix(in srgb, var(--color-cyan) 18%, var(--dash-border))",
       }}
     >
       <div className="flex items-center gap-1.5 flex-shrink-0">
         <Target size={13} style={{ color: "#00D4FF" }} />
         <span
           className="text-[10px] font-mono uppercase tracking-widest whitespace-nowrap"
-          style={{ color: "#64748B" }}
+          style={{ color: "var(--dash-muted)" }}
         >
           CPL Target
         </span>
       </div>
 
       <div className="flex items-center gap-1">
-        <span className="text-sm font-mono" style={{ color: "#64748B" }}>$</span>
+        <span className="text-sm font-mono" style={{ color: "var(--dash-muted)" }}>$</span>
         <input
           type="number"
           min="1"
@@ -63,7 +63,7 @@ export default function CplTargetInput() {
           className="w-20 bg-transparent text-sm font-mono font-semibold outline-none border-b text-center"
           style={{
             color: "#00D4FF",
-            borderColor: "rgba(0,212,255,0.3)",
+            borderColor: "color-mix(in srgb, var(--color-cyan) 30%, var(--dash-border))",
             caretColor: "#00D4FF",
           }}
         />
@@ -98,7 +98,7 @@ export default function CplTargetInput() {
 
       <div
         className="hidden md:flex items-center gap-2 ml-1 text-[10px] font-mono"
-        style={{ color: "#334155" }}
+        style={{ color: "var(--dash-subtle)" }}
       >
         <span style={{ color: "#00E676" }}>● ≤ target</span>
         <span style={{ color: "#FFB300" }}>● ≤ 1.5×</span>

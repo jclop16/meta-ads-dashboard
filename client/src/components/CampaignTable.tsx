@@ -63,11 +63,11 @@ export default function CampaignTable({ campaigns }: CampaignTableProps) {
   const tdClass = "px-3 py-3 text-sm font-mono whitespace-nowrap";
 
   return (
-    <div className="overflow-x-auto rounded-lg" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
+    <div className="overflow-x-auto rounded-lg" style={{ border: "1px solid var(--dash-border)" }}>
       <table className="w-full border-collapse">
         <thead>
-          <tr style={{ background: "rgba(0,0,0,0.4)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-            <th className={`${thClass} min-w-[200px]`} style={{ color: "#475569" }}>
+          <tr style={{ background: "var(--dash-panel-soft)", borderBottom: "1px solid var(--dash-border)" }}>
+            <th className={`${thClass} min-w-[200px]`} style={{ color: "var(--dash-subtle)" }}>
               Campaign
             </th>
             {[
@@ -84,7 +84,7 @@ export default function CampaignTable({ campaigns }: CampaignTableProps) {
               <th
                 key={col.label}
                 className={`${thClass} text-right`}
-                style={{ color: sortKey === col.key ? "#00D4FF" : "#475569" }}
+                style={{ color: sortKey === col.key ? "#00D4FF" : "var(--dash-subtle)" }}
                 onClick={() => col.key && toggleSort(col.key)}
               >
                 <span className="inline-flex items-center gap-1 justify-end">
@@ -93,7 +93,7 @@ export default function CampaignTable({ campaigns }: CampaignTableProps) {
                 </span>
               </th>
             ))}
-            <th className={`${thClass} text-center`} style={{ color: "#475569" }}>
+            <th className={`${thClass} text-center`} style={{ color: "var(--dash-subtle)" }}>
               Details
             </th>
           </tr>
@@ -114,7 +114,7 @@ export default function CampaignTable({ campaigns }: CampaignTableProps) {
                   className="group transition-all duration-150 cursor-pointer"
                   style={{
                     background: expanded === c.id ? rowBg : "transparent",
-                    borderBottom: "1px solid rgba(255,255,255,0.04)",
+                    borderBottom: "1px solid var(--dash-border)",
                   }}
                   onClick={() => setExpanded(expanded === c.id ? null : c.id)}
                 >
@@ -126,7 +126,7 @@ export default function CampaignTable({ campaigns }: CampaignTableProps) {
                       />
                       <span
                         className="text-sm font-medium leading-snug"
-                        style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#CBD5E1" }}
+                        style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--dash-text)" }}
                       >
                         {c.displayName ?? c.shortName}
                       </span>
@@ -135,32 +135,32 @@ export default function CampaignTable({ campaigns }: CampaignTableProps) {
                   <td className={`${tdClass} text-right`}>
                     <StatusBadge status={dynStatus} size="sm" />
                   </td>
-                  <td className={`${tdClass} text-right`} style={{ color: "#E2E8F0" }}>
+                  <td className={`${tdClass} text-right`} style={{ color: "var(--dash-text)" }}>
                     {fmtCurrency(c.amountSpent)}
                   </td>
-                  <td className={`${tdClass} text-right`} style={{ color: "#94A3B8" }}>
+                  <td className={`${tdClass} text-right`} style={{ color: "var(--dash-text-soft)" }}>
                     {c.impressions.toLocaleString()}
                   </td>
-                  <td className={`${tdClass} text-right font-bold`} style={{ color: "#E2E8F0" }}>
+                  <td className={`${tdClass} text-right font-bold`} style={{ color: "var(--dash-text)" }}>
                     {c.leads}
                   </td>
                   <td className={`${tdClass} text-right font-bold transition-colors duration-300`} style={{ color: dynColor }}>
                     {c.costPerLead !== null ? fmtCurrency(c.costPerLead) : "N/A"}
                   </td>
-                  <td className={`${tdClass} text-right`} style={{ color: "#94A3B8" }}>
+                  <td className={`${tdClass} text-right`} style={{ color: "var(--dash-text-soft)" }}>
                     {fmt(c.ctrAll)}%
                   </td>
-                  <td className={`${tdClass} text-right`} style={{ color: "#94A3B8" }}>
+                  <td className={`${tdClass} text-right`} style={{ color: "var(--dash-text-soft)" }}>
                     {fmt(c.ctrLink)}%
                   </td>
-                  <td className={`${tdClass} text-right`} style={{ color: "#94A3B8" }}>
+                  <td className={`${tdClass} text-right`} style={{ color: "var(--dash-text-soft)" }}>
                     {fmtCurrency(c.cpm)}
                   </td>
-                  <td className={`${tdClass} text-right`} style={{ color: "#94A3B8" }}>
+                  <td className={`${tdClass} text-right`} style={{ color: "var(--dash-text-soft)" }}>
                     {fmt(c.frequency, 2)}×
                   </td>
                   <td className="px-3 py-3 text-center">
-                    <span style={{ color: "#475569" }}>
+                    <span style={{ color: "var(--dash-subtle)" }}>
                       {expanded === c.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                     </span>
                   </td>
@@ -180,24 +180,24 @@ export default function CampaignTable({ campaigns }: CampaignTableProps) {
                         className="px-4 py-3"
                         style={{
                           background: rowBg,
-                          borderBottom: "1px solid rgba(255,255,255,0.06)",
+                          borderBottom: "1px solid var(--dash-border)",
                         }}
                       >
                         <div className="flex items-start gap-2">
-                          <Info size={14} className="flex-shrink-0 mt-0.5" style={{ color: "#475569" }} />
+                          <Info size={14} className="flex-shrink-0 mt-0.5" style={{ color: "var(--dash-subtle)" }} />
                           <div>
-                            <p className="text-xs font-semibold mb-1" style={{ color: "#94A3B8", fontFamily: "'Space Grotesk', sans-serif" }}>
+                            <p className="text-xs font-semibold mb-1" style={{ color: "var(--dash-text-soft)", fontFamily: "'Space Grotesk', sans-serif" }}>
                               Recommendation
                             </p>
-                            <p className="text-xs leading-relaxed" style={{ color: "#64748B" }}>
+                            <p className="text-xs leading-relaxed" style={{ color: "var(--dash-muted)" }}>
                               {c.recommendation}
                             </p>
                             <div className="flex gap-4 mt-2 flex-wrap">
-                              <span className="text-xs font-mono" style={{ color: "#475569" }}>
+                              <span className="text-xs font-mono" style={{ color: "var(--dash-subtle)" }}>
                                 Performance Score:{" "}
-                                <span style={{ color: "#94A3B8" }}>{c.performanceScore}/100</span>
+                                <span style={{ color: "var(--dash-text-soft)" }}>{c.performanceScore}/100</span>
                               </span>
-                              <span className="text-xs font-mono" style={{ color: "#475569" }}>
+                              <span className="text-xs font-mono" style={{ color: "var(--dash-subtle)" }}>
                                 CPL vs Target:{" "}
                                 <span style={{ color: dynColor, fontWeight: 600 }}>
                                   {c.costPerLead !== null
@@ -205,14 +205,14 @@ export default function CampaignTable({ campaigns }: CampaignTableProps) {
                                     : "N/A"}
                                 </span>
                               </span>
-                              <span className="text-xs font-mono" style={{ color: "#475569" }}>
-                                Reach: <span style={{ color: "#94A3B8" }}>{c.reach.toLocaleString()} accounts</span>
+                              <span className="text-xs font-mono" style={{ color: "var(--dash-subtle)" }}>
+                                Reach: <span style={{ color: "var(--dash-text-soft)" }}>{c.reach.toLocaleString()} accounts</span>
                               </span>
-                              <span className="text-xs font-mono" style={{ color: "#475569" }}>
-                                Link Clicks: <span style={{ color: "#94A3B8" }}>{c.linkClicks.toLocaleString()}</span>
+                              <span className="text-xs font-mono" style={{ color: "var(--dash-subtle)" }}>
+                                Link Clicks: <span style={{ color: "var(--dash-text-soft)" }}>{c.linkClicks.toLocaleString()}</span>
                               </span>
-                              <span className="text-xs font-mono" style={{ color: "#475569" }}>
-                                CPC (link): <span style={{ color: "#94A3B8" }}>{fmtCurrency(c.cpcLink)}</span>
+                              <span className="text-xs font-mono" style={{ color: "var(--dash-subtle)" }}>
+                                CPC (link): <span style={{ color: "var(--dash-text-soft)" }}>{fmtCurrency(c.cpcLink)}</span>
                               </span>
                             </div>
                           </div>

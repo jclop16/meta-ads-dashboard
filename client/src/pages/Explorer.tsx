@@ -1,9 +1,10 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { CalendarRange, Download, Filter, Layers3, LineChart, Search, Target, Waypoints } from "lucide-react";
+import { CalendarRange, ChevronDown, ChevronRight, Download, Filter, Layers3, Search, Sparkles, Target, Waypoints } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useCplTarget } from "@/contexts/CplTargetContext";
 import StatusBadge from "@/components/StatusBadge";
+import ThemeToggle from "@/components/ThemeToggle";
 
 const PRESET_OPTIONS = [
   { value: "last_30d", label: "Last 30 Days" },
@@ -86,12 +87,12 @@ function ExplorerTooltip({ active, payload, label }: any) {
     <div
       className="rounded-lg p-3 text-xs font-mono"
       style={{
-        background: "#13161E",
-        border: "1px solid rgba(0,212,255,0.2)",
-        boxShadow: "0 8px 24px rgba(0,0,0,0.55)",
+        background: "var(--dash-panel-solid)",
+        border: "1px solid color-mix(in srgb, var(--color-cyan) 22%, var(--dash-border))",
+        boxShadow: "var(--dash-shadow)",
       }}
     >
-      <p className="mb-1" style={{ color: "#94A3B8" }}>
+      <p className="mb-1" style={{ color: "var(--dash-text-soft)" }}>
         {label}
       </p>
       {payload.map((entry: any) => (
@@ -161,13 +162,13 @@ function FilterPill({
     <div
       className="rounded-lg px-3 py-2 text-xs font-mono"
       style={{
-        background: "rgba(255,255,255,0.03)",
-        border: "1px solid rgba(255,255,255,0.06)",
-        color: "#94A3B8",
+        background: "var(--dash-panel-soft)",
+        border: "1px solid var(--dash-border)",
+        color: "var(--dash-text-soft)",
       }}
     >
-      <span style={{ color: "#475569" }}>{label}: </span>
-      <span style={{ color: "#E2E8F0" }}>{value ?? "—"}</span>
+      <span style={{ color: "var(--dash-subtle)" }}>{label}: </span>
+      <span style={{ color: "var(--dash-text)" }}>{value ?? "—"}</span>
     </div>
   );
 }
@@ -185,20 +186,20 @@ function SectionCard({
     <section
       className="min-w-0 rounded-2xl p-5"
       style={{
-        background: "rgba(19,22,30,0.9)",
-        border: "1px solid rgba(255,255,255,0.06)",
-        boxShadow: "0 20px 60px rgba(0,0,0,0.28)",
+        background: "var(--dash-panel)",
+        border: "1px solid var(--dash-border)",
+        boxShadow: "var(--dash-shadow)",
       }}
     >
       <div className="mb-4">
         <h2
           className="text-sm font-semibold"
-          style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#F1F5F9" }}
+          style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--dash-text)" }}
         >
           {title}
         </h2>
         {subtitle ? (
-          <p className="mt-1 text-xs font-mono" style={{ color: "#64748B" }}>
+          <p className="mt-1 text-xs font-mono" style={{ color: "var(--dash-muted)" }}>
             {subtitle}
           </p>
         ) : null}
@@ -213,13 +214,207 @@ function MiniTag({ label }: { label: string }) {
     <span
       className="rounded-md px-2 py-0.5 text-[10px] font-mono"
       style={{
-        background: "rgba(255,255,255,0.04)",
-        border: "1px solid rgba(255,255,255,0.06)",
-        color: "#94A3B8",
+        background: "var(--dash-panel-soft)",
+        border: "1px solid var(--dash-border)",
+        color: "var(--dash-text-soft)",
       }}
     >
       {label}
     </span>
+  );
+}
+
+type InsightEntity = {
+  name: string;
+  displayName?: string;
+  performanceStatus: "excellent" | "moderate" | "poor";
+  performanceScore: number;
+  recommendation: string;
+  amountSpent: number;
+  leads: number;
+  costPerLead: number | null;
+  costPerLeadDeltaPct: number | null;
+  ctrLinkDeltaPct: number | null;
+  editorCode?: string | null;
+  launchLabel?: string | null;
+  audienceDescriptor?: string | null;
+};
+
+function getInsightTone(status: InsightEntity["performanceStatus"]) {
+  if (status === "excellent") {
+    return {
+      accent: "#00E676",
+      label: "Scale Signal",
+      impact: "Protect what is working while testing careful scale.",
+      risk: "Monitor quality drift if you add budget too fast.",
+    };
+  }
+
+  if (status === "poor") {
+    return {
+      accent: "#FF3B5C",
+      label: "Efficiency Risk",
+      impact: "Reduce wasted spend and stabilize the current acquisition cost.",
+      risk: "Quick cost cuts can also reduce lead volume if the traffic is still learning.",
+    };
+  }
+
+  return {
+    accent: "#FFB300",
+    label: "Optimization Watch",
+    impact: "Tighten the campaign before trying to scale.",
+    risk: "Low-volume changes can look better before they are statistically stable.",
+  };
+}
+
+function buildActionItems(entity: InsightEntity) {
+  const items: string[] = [];
+
+  if (entity.costPerLead != null) {
+    if (entity.performanceStatus === "poor") {
+      items.push("Tighten budget, audience, or creative before adding more spend to this scope.");
+    } else if (entity.performanceStatus === "excellent") {
+      items.push("Protect the current setup and test careful scale in controlled budget increments.");
+    } else {
+      items.push("Refine the weakest lever first before trying to scale the current delivery.");
+    }
+  } else {
+    items.push("This scope has spend without enough conversion signal yet. Stabilize the offer or traffic before scaling.");
+  }
+
+  if (entity.leads < 5) {
+    items.push("Lead volume is still light. Treat efficiency changes as directional until more conversions land.");
+  } else if ((entity.costPerLeadDeltaPct ?? 0) > 15) {
+    items.push("CPL is worsening versus the prior period. Review recent edits, audience saturation, and landing-page changes.");
+  } else {
+    items.push("Current lead volume is strong enough to compare against the prior period with more confidence.");
+  }
+
+  if ((entity.ctrLinkDeltaPct ?? 0) < -10) {
+    items.push("Link CTR is deteriorating. Refresh hooks, headlines, or creative angles before blaming the funnel.");
+  } else if ((entity.ctrLinkDeltaPct ?? 0) > 10) {
+    items.push("CTR is improving. Preserve the winning message while watching downstream efficiency and lead quality.");
+  } else {
+    items.push("CTR is relatively stable. Focus the next adjustment on conversion efficiency, not clickthrough alone.");
+  }
+
+  return items.slice(0, 3);
+}
+
+function RecommendationCallout({
+  entity,
+  title,
+}: {
+  entity: InsightEntity;
+  title: string;
+}) {
+  const tone = getInsightTone(entity.performanceStatus);
+  const actions = buildActionItems(entity);
+
+  return (
+    <div
+      className="rounded-xl p-4"
+      style={{
+        background: "color-mix(in srgb, var(--dash-panel) 85%, transparent)",
+        border: `1px solid color-mix(in srgb, ${tone.accent} 32%, var(--dash-border))`,
+      }}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-mono uppercase tracking-[0.18em]"
+          style={{ background: `${tone.accent}18`, color: tone.accent }}
+        >
+          <Sparkles size={11} />
+          {tone.label}
+        </span>
+        <span className="text-xs font-mono" style={{ color: "var(--dash-subtle)" }}>
+          Score {entity.performanceScore}/100
+        </span>
+      </div>
+
+      <h3
+        className="mt-3 text-sm font-semibold"
+        style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--dash-text)" }}
+      >
+        {title}
+      </h3>
+      <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--dash-text-soft)" }}>
+        {entity.recommendation}
+      </p>
+
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <div
+          className="rounded-lg px-3 py-3 text-xs font-mono"
+          style={{ background: "var(--dash-panel-soft)", border: "1px solid var(--dash-border)" }}
+        >
+          <div style={{ color: "var(--dash-subtle)" }}>Expected effect</div>
+          <div className="mt-1" style={{ color: "var(--dash-text)" }}>
+            {tone.impact}
+          </div>
+        </div>
+        <div
+          className="rounded-lg px-3 py-3 text-xs font-mono"
+          style={{ background: "var(--dash-panel-soft)", border: "1px solid var(--dash-border)" }}
+        >
+          <div style={{ color: "var(--dash-subtle)" }}>Watch out</div>
+          <div className="mt-1" style={{ color: "var(--dash-text)" }}>
+            {entity.leads < 5
+              ? "Lead volume is still light. Treat directional improvements cautiously until more conversions land."
+              : tone.risk}
+          </div>
+        </div>
+      </div>
+
+      <div
+        className="mt-3 rounded-lg px-3 py-3"
+        style={{ background: "var(--dash-panel-soft)", border: "1px solid var(--dash-border)" }}
+      >
+        <div
+          className="text-[10px] font-mono uppercase tracking-[0.18em]"
+          style={{ color: "var(--dash-subtle)" }}
+        >
+          Actionable next steps
+        </div>
+        <div className="mt-2 space-y-2">
+          {actions.map(item => (
+            <div key={item} className="flex items-start gap-2 text-sm leading-relaxed" style={{ color: "var(--dash-text-soft)" }}>
+              <span className="mt-1 h-1.5 w-1.5 rounded-full" style={{ background: tone.accent }} />
+              <span>{item}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <FilterPill label="Spend" value={formatCurrency(entity.amountSpent)} />
+        <FilterPill label="Leads" value={entity.leads.toLocaleString()} />
+        <FilterPill
+          label="CPL"
+          value={entity.costPerLead != null ? formatCurrency(entity.costPerLead) : "No leads"}
+        />
+        <FilterPill label="CPL Δ" value={formatDelta(entity.costPerLeadDeltaPct, true)} />
+        <FilterPill label="CTR Δ" value={formatDelta(entity.ctrLinkDeltaPct)} />
+      </div>
+    </div>
+  );
+}
+
+function BreakdownMetric({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[10px] font-mono uppercase tracking-[0.16em]" style={{ color: "var(--dash-subtle)" }}>
+        {label}
+      </div>
+      <div className="mt-1 text-sm font-mono font-semibold" style={{ color: "var(--dash-text)" }}>
+        {value}
+      </div>
+    </div>
   );
 }
 
@@ -325,20 +520,35 @@ export default function Explorer() {
     summaryData?.availableDataSince && summaryData?.availableDataUntil
       ? `${summaryData.availableDataSince} to ${summaryData.availableDataUntil}`
       : "Awaiting first historical sync";
+  const overallFocus = useMemo(() => {
+    const poorPerformer = campaignRows
+      .filter(row => row.performanceStatus === "poor")
+      .sort((left, right) => right.amountSpent - left.amountSpent)[0];
+
+    if (poorPerformer) {
+      return poorPerformer;
+    }
+
+    return [...campaignRows].sort((left, right) => right.performanceScore - left.performanceScore)[0] ?? null;
+  }, [campaignRows]);
+  const interpretationEntity = selectedAdset ?? selectedCampaign ?? overallFocus;
+  const interpretationTitle = selectedAdset
+    ? `Recommended next move for ${selectedAdset.name}`
+    : selectedCampaign
+      ? `Recommended next move for ${selectedCampaign.displayName}`
+      : overallFocus
+        ? `Recommended focus inside ${summaryData?.range.label ?? "the filtered window"}`
+        : "Recommended focus";
 
   return (
     <div
-      className="min-h-screen"
-      style={{
-        background:
-          "radial-gradient(circle at top left, rgba(0,212,255,0.08), transparent 28%), #0D0F14",
-      }}
+      className="dashboard-page min-h-screen overflow-x-hidden"
     >
       <header
         className="sticky top-0 z-40 border-b px-4 py-4"
         style={{
-          background: "rgba(13,15,20,0.92)",
-          borderColor: "rgba(255,255,255,0.05)",
+          background: "var(--dash-header)",
+          borderColor: "var(--dash-border)",
           backdropFilter: "blur(12px)",
         }}
       >
@@ -349,23 +559,24 @@ export default function Explorer() {
             </p>
             <h1
               className="mt-1 text-2xl font-bold"
-              style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#F8FAFC" }}
+              style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--dash-text)" }}
             >
               Meta Explorer
             </h1>
-            <p className="mt-1 text-sm" style={{ color: "#64748B" }}>
+            <p className="mt-1 text-sm" style={{ color: "var(--dash-muted)" }}>
               Drill from campaign to ad set to ad before introducing Meta write actions.
             </p>
           </div>
 
           <div className="flex items-center gap-2 text-xs font-semibold">
+            <ThemeToggle />
             <a
               href="/"
               className="rounded-lg px-3 py-2 transition-colors hover:brightness-125"
               style={{
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(255,255,255,0.06)",
-                color: "#CBD5E1",
+                background: "var(--dash-panel-soft)",
+                border: "1px solid var(--dash-border)",
+                color: "var(--dash-text)",
               }}
             >
               Executive Summary
@@ -374,9 +585,9 @@ export default function Explorer() {
               href="/history"
               className="rounded-lg px-3 py-2 transition-colors hover:brightness-125"
               style={{
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(255,255,255,0.06)",
-                color: "#CBD5E1",
+                background: "var(--dash-panel-soft)",
+                border: "1px solid var(--dash-border)",
+                color: "var(--dash-text)",
               }}
             >
               Snapshot History
@@ -391,14 +602,14 @@ export default function Explorer() {
           subtitle="Preset buttons prefill the range, but explicit dates drive the reporting queries."
         >
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-            <label className="space-y-1 text-xs font-mono" style={{ color: "#64748B" }}>
+            <label className="space-y-1 text-xs font-mono" style={{ color: "var(--dash-muted)" }}>
               <span className="inline-flex items-center gap-1"><Filter size={12} /> Date Shortcut</span>
               <select
                 className="w-full rounded-lg px-3 py-2 outline-none"
                 style={{
-                  background: "#0F172A",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  color: "#E2E8F0",
+                  background: "var(--dash-panel-soft)",
+                  border: "1px solid var(--dash-border)",
+                  color: "var(--dash-text)",
                 }}
                 value={preset}
                 onChange={event =>
@@ -413,7 +624,7 @@ export default function Explorer() {
               </select>
             </label>
 
-            <label className="space-y-1 text-xs font-mono" style={{ color: "#64748B" }}>
+            <label className="space-y-1 text-xs font-mono" style={{ color: "var(--dash-muted)" }}>
               <span className="inline-flex items-center gap-1"><CalendarRange size={12} /> Start Date</span>
               <input
                 type="date"
@@ -426,14 +637,14 @@ export default function Explorer() {
                 }}
                 className="w-full rounded-lg px-3 py-2 outline-none"
                 style={{
-                  background: "#0F172A",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  color: "#E2E8F0",
+                  background: "var(--dash-panel-soft)",
+                  border: "1px solid var(--dash-border)",
+                  color: "var(--dash-text)",
                 }}
               />
             </label>
 
-            <label className="space-y-1 text-xs font-mono" style={{ color: "#64748B" }}>
+            <label className="space-y-1 text-xs font-mono" style={{ color: "var(--dash-muted)" }}>
               <span>End Date</span>
               <input
                 type="date"
@@ -446,21 +657,21 @@ export default function Explorer() {
                 }}
                 className="w-full rounded-lg px-3 py-2 outline-none"
                 style={{
-                  background: "#0F172A",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  color: "#E2E8F0",
+                  background: "var(--dash-panel-soft)",
+                  border: "1px solid var(--dash-border)",
+                  color: "var(--dash-text)",
                 }}
               />
             </label>
 
-            <label className="space-y-1 text-xs font-mono" style={{ color: "#64748B" }}>
+            <label className="space-y-1 text-xs font-mono" style={{ color: "var(--dash-muted)" }}>
               <span>Objective</span>
               <select
                 className="w-full rounded-lg px-3 py-2 outline-none"
                 style={{
-                  background: "#0F172A",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  color: "#E2E8F0",
+                  background: "var(--dash-panel-soft)",
+                  border: "1px solid var(--dash-border)",
+                  color: "var(--dash-text)",
                 }}
                 value={objective}
                 onChange={event => setObjective(event.target.value)}
@@ -474,14 +685,14 @@ export default function Explorer() {
               </select>
             </label>
 
-            <label className="space-y-1 text-xs font-mono" style={{ color: "#64748B" }}>
+            <label className="space-y-1 text-xs font-mono" style={{ color: "var(--dash-muted)" }}>
               <span>Status</span>
               <select
                 className="w-full rounded-lg px-3 py-2 outline-none"
                 style={{
-                  background: "#0F172A",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  color: "#E2E8F0",
+                  background: "var(--dash-panel-soft)",
+                  border: "1px solid var(--dash-border)",
+                  color: "var(--dash-text)",
                 }}
                 value={status}
                 onChange={event => setStatus(event.target.value)}
@@ -495,7 +706,7 @@ export default function Explorer() {
               </select>
             </label>
 
-            <label className="space-y-1 text-xs font-mono" style={{ color: "#64748B" }}>
+            <label className="space-y-1 text-xs font-mono" style={{ color: "var(--dash-muted)" }}>
               <span className="inline-flex items-center gap-1"><Search size={12} /> Name Search</span>
               <input
                 value={query}
@@ -503,9 +714,9 @@ export default function Explorer() {
                 placeholder="Campaign, ad set, or ad"
                 className="w-full rounded-lg px-3 py-2 outline-none"
                 style={{
-                  background: "#0F172A",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  color: "#E2E8F0",
+                  background: "var(--dash-panel-soft)",
+                  border: "1px solid var(--dash-border)",
+                  color: "var(--dash-text)",
                 }}
               />
             </label>
@@ -619,16 +830,16 @@ export default function Explorer() {
                         <stop offset="100%" stopColor="#00E676" stopOpacity={0.02} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--dash-chart-grid)" />
                     <XAxis
                       dataKey="label"
-                      tick={{ fill: "#64748B", fontSize: 11 }}
+                      tick={{ fill: "var(--dash-muted)", fontSize: 11 }}
                       axisLine={false}
                       tickLine={false}
                     />
                     <YAxis
                       yAxisId="left"
-                      tick={{ fill: "#64748B", fontSize: 11 }}
+                      tick={{ fill: "var(--dash-muted)", fontSize: 11 }}
                       axisLine={false}
                       tickLine={false}
                       tickFormatter={value => `$${value}`}
@@ -636,7 +847,7 @@ export default function Explorer() {
                     <YAxis
                       yAxisId="right"
                       orientation="right"
-                      tick={{ fill: "#64748B", fontSize: 11 }}
+                      tick={{ fill: "var(--dash-muted)", fontSize: 11 }}
                       axisLine={false}
                       tickLine={false}
                     />
@@ -666,322 +877,300 @@ export default function Explorer() {
           </SectionCard>
 
           <SectionCard
-            title="Selection Context"
-            subtitle="The trend starts at filtered account scope. Click a campaign row to drill into ad sets, then an ad set to load ads."
+            title="Interpretation Panel"
+            subtitle="Filters drive the overall readout. Selections only take over when you intentionally drill into a campaign or ad set."
           >
             <div className="grid gap-3">
               <FilterPill label="Selected Campaign" value={selectedCampaign?.displayName ?? "None"} />
               <FilterPill label="Selected Ad Set" value={selectedAdset?.name ?? "None"} />
+              <FilterPill
+                label="Current Focus"
+                value={
+                  selectedAdset
+                    ? "Ad set drilldown"
+                    : selectedCampaign
+                      ? "Campaign drilldown"
+                      : "Filtered account scope"
+                }
+              />
               <FilterPill label="Editor" value={selectedCampaign?.editorCode ?? selectedAdset?.editorCode ?? "—"} />
               <FilterPill label="Launch" value={selectedCampaign?.launchLabel ?? selectedAdset?.launchLabel ?? "—"} />
               <FilterPill label="Audience" value={selectedCampaign?.audienceDescriptor ?? selectedAdset?.audienceDescriptor ?? "—"} />
-              <FilterPill
-                label="Current Campaign CPL"
-                value={
-                  selectedCampaign?.costPerLead != null
-                    ? formatCurrency(selectedCampaign.costPerLead)
-                    : "N/A"
-                }
-              />
-              <FilterPill
-                label="Current Ad Set CPL"
-                value={
-                  selectedAdset?.costPerLead != null
-                    ? formatCurrency(selectedAdset.costPerLead)
-                    : "N/A"
-                }
-              />
             </div>
+            {interpretationEntity ? (
+              <div className="mt-4">
+                <RecommendationCallout entity={interpretationEntity} title={interpretationTitle} />
+              </div>
+            ) : null}
           </SectionCard>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-[1.25fr_1fr_1fr]">
-          <SectionCard
-            title="Campaign Breakdown"
-            subtitle="Primary list for filtered scope. Sorted by spend."
-          >
-            <div className="mb-3 flex justify-end">
-              <button
-                type="button"
-                onClick={() =>
-                  downloadCsv(
-                    "campaign-breakdown.csv",
-                    [
-                      "Campaign",
-                      "Editor",
-                      "Launch",
-                      "Audience",
-                      "Objective",
-                      "Spend",
-                      "Spend Delta %",
-                      "Leads",
-                      "Leads Delta %",
-                      "CPL",
-                      "CPL Delta %",
-                      "CTR Link",
-                      "CTR Delta %",
-                      "Performance Score",
-                      "Status",
-                    ],
-                    campaignRows.map(row => [
-                      row.displayName,
-                      row.editorCode,
-                      row.launchLabel,
-                      row.audienceDescriptor,
-                      row.objective,
-                      row.amountSpent,
-                      row.amountSpentDeltaPct,
-                      row.leads,
-                      row.leadsDeltaPct,
-                      row.costPerLead,
-                      row.costPerLeadDeltaPct,
-                      row.ctrLink,
-                      row.ctrLinkDeltaPct,
-                      row.performanceScore,
-                      row.performanceStatus,
-                    ])
-                  )
-                }
-                className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-mono"
-                style={{
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px solid rgba(255,255,255,0.06)",
-                  color: "#CBD5E1",
-                }}
-              >
-                <Download size={12} />
-                Export CSV
-              </button>
+        <SectionCard
+          title="Campaign Drilldown"
+          subtitle="Click a campaign to reveal its ad sets inline. Click an ad set to reveal its ads inside the same reading flow."
+        >
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs font-mono" style={{ color: "var(--dash-muted)" }}>
+              Filters control the overview and default trend. Drilldowns only take over when you expand them.
             </div>
-            <DataTable
-              icon={<Target size={13} />}
-              loading={isCampaignsLoading}
-              headers={["Campaign", "Objective", "Spend", "Spend Δ", "Leads", "Leads Δ", "CPL", "CPL Δ", "CTR Δ", "Status"]}
-              tableMinWidthClassName="min-w-[1100px]"
-              rows={campaignRows.map(row => ({
-                key: row.id,
-                selected: row.id === selectedCampaignId,
-                onClick: () => {
-                  if (row.id === selectedCampaignId) {
-                    setSelectedCampaignId(null);
-                    setSelectedAdsetId(null);
-                    return;
-                  }
-
-                  setSelectedCampaignId(row.id);
-                  setSelectedAdsetId(null);
-                },
-                cells: [
-                  <div className="min-w-[16rem]">
-                    <p className="font-semibold" style={{ color: "#F8FAFC" }}>
-                      {getPreferredCampaignLabel({
-                        rawName: row.name,
-                        displayName: row.displayName,
-                        editorCode: row.editorCode,
-                        campaignDescriptor: row.campaignDescriptor,
-                      })}
-                    </p>
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {row.editorCode ? <MiniTag label={row.editorCode} /> : null}
-                      {row.launchLabel ? <MiniTag label={row.launchLabel} /> : null}
-                      {row.audienceDescriptor ? <MiniTag label={row.audienceDescriptor} /> : null}
-                    </div>
-                  </div>,
-                  row.objective,
-                  formatCurrency(row.amountSpent),
-                  formatDelta(row.amountSpentDeltaPct ?? null),
-                  row.leads.toLocaleString(),
-                  formatDelta(row.leadsDeltaPct ?? null),
-                  row.costPerLead != null ? formatCurrency(row.costPerLead) : "N/A",
-                  formatDelta(row.costPerLeadDeltaPct ?? null, true),
-                  formatDelta(row.ctrLinkDeltaPct ?? null),
-                  <StatusBadge status={row.performanceStatus} size="sm" />,
-                ],
-              }))}
-              emptyLabel="No campaigns match the current filters."
-            />
-          </SectionCard>
-
-          <SectionCard
-            title="Ad Set Breakdown"
-            subtitle={selectedCampaign ? `Scoped to ${selectedCampaign.displayName}` : "Select a campaign to inspect ad sets."}
-          >
-            <DataTable
-              icon={<Layers3 size={13} />}
-              loading={Boolean(selectedCampaignId) && isAdsetsLoading}
-              headers={["Ad Set", "Spend", "Spend Δ", "Leads", "Leads Δ", "CPL", "CPL Δ", "CTR Δ", "Status"]}
-              tableMinWidthClassName="min-w-[980px]"
-              rows={adsetRows.map(row => ({
-                key: row.id,
-                selected: row.id === selectedAdsetId,
-                onClick: () =>
-                  setSelectedAdsetId(current => (current === row.id ? null : row.id)),
-                cells: [
-                  <div className="min-w-[18rem]">
-                    <p className="font-semibold" style={{ color: "#F8FAFC" }}>
-                      {row.name}
-                    </p>
-                    <p className="text-[11px] font-mono" style={{ color: "#475569" }}>
-                      {row.optimizationGoal ?? "No optimization goal"}
-                    </p>
-                  </div>,
-                  formatCurrency(row.amountSpent),
-                  formatDelta(row.amountSpentDeltaPct ?? null),
-                  row.leads.toLocaleString(),
-                  formatDelta(row.leadsDeltaPct ?? null),
-                  row.costPerLead != null ? formatCurrency(row.costPerLead) : "N/A",
-                  formatDelta(row.costPerLeadDeltaPct ?? null, true),
-                  formatDelta(row.ctrLinkDeltaPct ?? null),
-                  <StatusBadge status={row.performanceStatus} size="sm" />,
-                ],
-              }))}
-              emptyLabel={
-                selectedCampaignId
-                  ? "No ad sets found for the selected campaign in this range."
-                  : "Select a campaign to load ad sets."
+            <button
+              type="button"
+              onClick={() =>
+                downloadCsv(
+                  "campaign-breakdown.csv",
+                  [
+                    "Campaign",
+                    "Editor",
+                    "Launch",
+                    "Audience",
+                    "Objective",
+                    "Spend",
+                    "Spend Delta %",
+                    "Leads",
+                    "Leads Delta %",
+                    "CPL",
+                    "CPL Delta %",
+                    "CTR Link",
+                    "CTR Delta %",
+                    "Performance Score",
+                    "Status",
+                  ],
+                  campaignRows.map(row => [
+                    row.displayName,
+                    row.editorCode,
+                    row.launchLabel,
+                    row.audienceDescriptor,
+                    row.objective,
+                    row.amountSpent,
+                    row.amountSpentDeltaPct,
+                    row.leads,
+                    row.leadsDeltaPct,
+                    row.costPerLead,
+                    row.costPerLeadDeltaPct,
+                    row.ctrLink,
+                    row.ctrLinkDeltaPct,
+                    row.performanceScore,
+                    row.performanceStatus,
+                  ])
+                )
               }
-            />
-          </SectionCard>
+              className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-mono"
+              style={{
+                background: "var(--dash-panel-soft)",
+                border: "1px solid var(--dash-border)",
+                color: "var(--dash-text)",
+              }}
+            >
+              <Download size={12} />
+              Export CSV
+            </button>
+          </div>
 
-          <SectionCard
-            title="Ad Breakdown"
-            subtitle={selectedAdset ? `Scoped to ${selectedAdset.name}` : "Select an ad set to inspect ads."}
-          >
-            <DataTable
-              icon={<Waypoints size={13} />}
-              loading={Boolean(selectedAdsetId) && isAdsLoading}
-              headers={["Ad", "Spend", "Spend Δ", "Leads", "Leads Δ", "CPL", "CPL Δ", "CTR Δ", "Status"]}
-              tableMinWidthClassName="min-w-[1080px]"
-              rows={adRows.map(row => ({
-                key: row.id,
-                cells: [
-                  <div className="min-w-[20rem]">
-                    <p className="font-semibold" style={{ color: "#F8FAFC" }}>
-                      {row.name}
-                    </p>
-                    <p className="text-[11px] font-mono" style={{ color: "#475569" }}>
-                      {row.creativeName ?? row.creativeId ?? "No creative label"}
-                    </p>
-                  </div>,
-                  formatCurrency(row.amountSpent),
-                  formatDelta(row.amountSpentDeltaPct ?? null),
-                  row.leads.toLocaleString(),
-                  formatDelta(row.leadsDeltaPct ?? null),
-                  row.costPerLead != null ? formatCurrency(row.costPerLead) : "N/A",
-                  formatDelta(row.costPerLeadDeltaPct ?? null, true),
-                  formatDelta(row.ctrLinkDeltaPct ?? null),
-                  <StatusBadge status={row.performanceStatus} size="sm" />,
-                ],
-              }))}
-              emptyLabel={
-                selectedAdsetId
-                  ? "No ads found for the selected ad set in this range."
-                  : "Select an ad set to load ads."
-              }
-            />
-          </SectionCard>
-        </div>
-      </main>
-    </div>
-  );
-}
+          {isCampaignsLoading ? (
+            <div className="rounded-xl border px-4 py-8 text-center text-sm font-mono" style={{ borderColor: "var(--dash-border)", color: "var(--dash-muted)" }}>
+              Loading campaigns…
+            </div>
+          ) : campaignRows.length === 0 ? (
+            <div className="rounded-xl border px-4 py-8 text-center text-sm font-mono" style={{ borderColor: "var(--dash-border)", color: "var(--dash-muted)" }}>
+              No campaigns match the current filters.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {campaignRows.map(row => {
+                const isOpen = row.id === selectedCampaignId;
+                const campaignLabel = getPreferredCampaignLabel({
+                  rawName: row.name,
+                  displayName: row.displayName,
+                  editorCode: row.editorCode,
+                  campaignDescriptor: row.campaignDescriptor,
+                });
 
-function DataTable({
-  icon,
-  headers,
-  rows,
-  loading,
-  emptyLabel,
-  tableMinWidthClassName = "min-w-[960px]",
-}: {
-  icon: ReactNode;
-  headers: string[];
-  rows: Array<{
-    key: string;
-    selected?: boolean;
-    onClick?: () => void;
-    cells: ReactNode[];
-  }>;
-  loading: boolean;
-  emptyLabel: string;
-  tableMinWidthClassName?: string;
-}) {
-  return (
-    <div className="max-w-full rounded-xl border" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
-      <div
-        className="flex items-center gap-2 border-b px-4 py-3 text-[11px] font-mono uppercase tracking-[0.18em]"
-        style={{
-          borderColor: "rgba(255,255,255,0.05)",
-          background: "rgba(255,255,255,0.03)",
-          color: "#64748B",
-        }}
-      >
-        {icon}
-        Live Aggregation
-      </div>
+                return (
+                  <div
+                    key={row.id}
+                    className="overflow-hidden rounded-2xl border"
+                    style={{
+                      borderColor: isOpen ? "color-mix(in srgb, var(--color-cyan) 35%, var(--dash-border))" : "var(--dash-border)",
+                      background: isOpen ? "color-mix(in srgb, var(--color-cyan) 6%, var(--dash-panel))" : "var(--dash-panel-soft)",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isOpen) {
+                          setSelectedCampaignId(null);
+                          setSelectedAdsetId(null);
+                          return;
+                        }
 
-      <div className="max-w-full overflow-x-auto overscroll-x-contain">
-        <table className={`w-full ${tableMinWidthClassName}`}>
-          <thead>
-            <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-              {headers.map(header => (
-                <th
-                  key={header}
-                  className="px-4 py-3 text-left text-[11px] font-mono uppercase tracking-[0.16em]"
-                  style={{ color: "#475569" }}
-                >
-                  {header}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td
-                  colSpan={headers.length}
-                  className="px-4 py-8 text-center text-sm font-mono"
-                  style={{ color: "#64748B" }}
-                >
-                  Loading…
-                </td>
-              </tr>
-            ) : rows.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={headers.length}
-                  className="px-4 py-8 text-center text-sm font-mono"
-                  style={{ color: "#64748B" }}
-                >
-                  {emptyLabel}
-                </td>
-              </tr>
-            ) : (
-              rows.map(row => (
-                <tr
-                  key={row.key}
-                  onClick={row.onClick}
-                  style={{
-                    cursor: row.onClick ? "pointer" : "default",
-                    background: row.selected ? "rgba(0,212,255,0.07)" : "transparent",
-                    borderBottom: "1px solid rgba(255,255,255,0.04)",
-                  }}
-                >
-                  {row.cells.map((cell, index) => (
-                    <td
-                      key={`${row.key}-${index}`}
-                      className="px-4 py-3 align-top text-sm font-mono"
-                      style={{ color: "#CBD5E1" }}
+                        setSelectedCampaignId(row.id);
+                        setSelectedAdsetId(null);
+                      }}
+                      className="w-full px-4 py-4 text-left"
                     >
-                      {cell}
-                    </td>
-                  ))}
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+                      <div className="grid gap-3 lg:grid-cols-[minmax(0,2.3fr)_repeat(4,minmax(0,1fr))_auto] lg:items-center">
+                        <div className="min-w-0">
+                          <div className="flex items-start gap-3">
+                            <span style={{ color: isOpen ? "#00D4FF" : "var(--dash-subtle)" }}>
+                              {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="text-base font-semibold" style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--dash-text)" }}>
+                                {campaignLabel}
+                              </div>
+                              <div className="mt-2 flex flex-wrap gap-1">
+                                {row.editorCode ? <MiniTag label={row.editorCode} /> : null}
+                                {row.launchLabel ? <MiniTag label={row.launchLabel} /> : null}
+                                {row.audienceDescriptor ? <MiniTag label={row.audienceDescriptor} /> : null}
+                                <MiniTag label={row.objective} />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <BreakdownMetric label="Spend" value={formatCurrency(row.amountSpent)} />
+                        <BreakdownMetric label="Leads" value={row.leads.toLocaleString()} />
+                        <BreakdownMetric label="CPL" value={row.costPerLead != null ? formatCurrency(row.costPerLead) : "No leads"} />
+                        <BreakdownMetric label="Score" value={`${row.performanceScore}/100`} />
+                        <div className="flex items-center justify-start lg:justify-end">
+                          <StatusBadge status={row.performanceStatus} size="sm" />
+                        </div>
+                      </div>
+                    </button>
+
+                    {isOpen ? (
+                      <div className="border-t px-4 py-4" style={{ borderColor: "var(--dash-border)" }}>
+                        <RecommendationCallout entity={row} title={`Campaign readout for ${campaignLabel}`} />
+
+                        <div className="mt-4">
+                          <div className="mb-3 flex items-center gap-2 text-xs font-mono uppercase tracking-[0.18em]" style={{ color: "var(--dash-muted)" }}>
+                            <Layers3 size={12} />
+                            Ad Set Breakdown
+                          </div>
+
+                          {isAdsetsLoading ? (
+                            <div className="rounded-xl border px-4 py-6 text-center text-sm font-mono" style={{ borderColor: "var(--dash-border)", color: "var(--dash-muted)" }}>
+                              Loading ad sets…
+                            </div>
+                          ) : adsetRows.length === 0 ? (
+                            <div className="rounded-xl border px-4 py-6 text-center text-sm font-mono" style={{ borderColor: "var(--dash-border)", color: "var(--dash-muted)" }}>
+                              No ad sets found for this campaign in the current range.
+                            </div>
+                          ) : (
+                            <div className="space-y-3">
+                              {adsetRows.map(adset => {
+                                const adsetOpen = adset.id === selectedAdsetId;
+
+                                return (
+                                  <div
+                                    key={adset.id}
+                                    className="overflow-hidden rounded-xl border"
+                                    style={{
+                                      borderColor: adsetOpen ? "color-mix(in srgb, #00E676 24%, var(--dash-border))" : "var(--dash-border)",
+                                      background: adsetOpen ? "color-mix(in srgb, #00E676 6%, var(--dash-panel))" : "var(--dash-panel)",
+                                    }}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setSelectedAdsetId(current => (current === adset.id ? null : adset.id))
+                                      }
+                                      className="w-full px-4 py-4 text-left"
+                                    >
+                                      <div className="grid gap-3 md:grid-cols-[minmax(0,2.2fr)_repeat(4,minmax(0,1fr))_auto] md:items-center">
+                                        <div className="min-w-0">
+                                          <div className="flex items-start gap-3">
+                                            <span style={{ color: adsetOpen ? "#00E676" : "var(--dash-subtle)" }}>
+                                              {adsetOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                                            </span>
+                                            <div className="min-w-0">
+                                              <div className="text-sm font-semibold" style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--dash-text)" }}>
+                                                {adset.name}
+                                              </div>
+                                              <div className="mt-1 flex flex-wrap gap-1">
+                                                {adset.optimizationGoal ? <MiniTag label={adset.optimizationGoal} /> : null}
+                                                {adset.billingEvent ? <MiniTag label={adset.billingEvent} /> : null}
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                        <BreakdownMetric label="Spend" value={formatCurrency(adset.amountSpent)} />
+                                        <BreakdownMetric label="Leads" value={adset.leads.toLocaleString()} />
+                                        <BreakdownMetric label="CPL" value={adset.costPerLead != null ? formatCurrency(adset.costPerLead) : "No leads"} />
+                                        <BreakdownMetric label="Score" value={`${adset.performanceScore}/100`} />
+                                        <div className="flex items-center justify-start md:justify-end">
+                                          <StatusBadge status={adset.performanceStatus} size="sm" />
+                                        </div>
+                                      </div>
+                                    </button>
+
+                                    {adsetOpen ? (
+                                      <div className="border-t px-4 py-4" style={{ borderColor: "var(--dash-border)" }}>
+                                        <RecommendationCallout entity={adset} title={`Ad set readout for ${adset.name}`} />
+
+                                        <div className="mt-4">
+                                          <div className="mb-3 flex items-center gap-2 text-xs font-mono uppercase tracking-[0.18em]" style={{ color: "var(--dash-muted)" }}>
+                                            <Waypoints size={12} />
+                                            Ad Breakdown
+                                          </div>
+
+                                          {isAdsLoading ? (
+                                            <div className="rounded-xl border px-4 py-6 text-center text-sm font-mono" style={{ borderColor: "var(--dash-border)", color: "var(--dash-muted)" }}>
+                                              Loading ads…
+                                            </div>
+                                          ) : adRows.length === 0 ? (
+                                            <div className="rounded-xl border px-4 py-6 text-center text-sm font-mono" style={{ borderColor: "var(--dash-border)", color: "var(--dash-muted)" }}>
+                                              No ads found for this ad set in the current range.
+                                            </div>
+                                          ) : (
+                                            <div className="space-y-3">
+                                              {adRows.map(ad => (
+                                                <div
+                                                  key={ad.id}
+                                                  className="rounded-xl border px-4 py-4"
+                                                  style={{ borderColor: "var(--dash-border)", background: "var(--dash-panel-soft)" }}
+                                                >
+                                                  <div className="grid gap-3 lg:grid-cols-[minmax(0,2.4fr)_repeat(4,minmax(0,1fr))_auto] lg:items-start">
+                                                    <div className="min-w-0">
+                                                      <div className="text-sm font-semibold" style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--dash-text)" }}>
+                                                        {ad.name}
+                                                      </div>
+                                                      <div className="mt-1 text-xs font-mono" style={{ color: "var(--dash-muted)" }}>
+                                                        {ad.creativeName ?? ad.creativeId ?? "No creative label"}
+                                                      </div>
+                                                      <div className="mt-3 text-sm leading-relaxed" style={{ color: "var(--dash-text-soft)" }}>
+                                                        {ad.recommendation}
+                                                      </div>
+                                                    </div>
+                                                    <BreakdownMetric label="Spend" value={formatCurrency(ad.amountSpent)} />
+                                                    <BreakdownMetric label="Leads" value={ad.leads.toLocaleString()} />
+                                                    <BreakdownMetric label="CPL" value={ad.costPerLead != null ? formatCurrency(ad.costPerLead) : "No leads"} />
+                                                    <BreakdownMetric label="CTR Δ" value={formatDelta(ad.ctrLinkDeltaPct)} />
+                                                    <div className="flex items-center justify-start lg:justify-end">
+                                                      <StatusBadge status={ad.performanceStatus} size="sm" />
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </SectionCard>
+      </main>
     </div>
   );
 }

@@ -101,7 +101,7 @@ export default function ActionPanel({ items }: ActionPanelProps) {
                   </span>
                   <span
                     className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded"
-                    style={{ color: "#64748B", background: "rgba(255,255,255,0.04)" }}
+                    style={{ color: "var(--dash-muted)", background: "var(--dash-panel-soft)" }}
                   >
                     {categoryLabel[item.category]}
                   </span>
@@ -118,13 +118,13 @@ export default function ActionPanel({ items }: ActionPanelProps) {
                   className="text-sm font-semibold mb-1 leading-snug"
                   style={{
                     fontFamily: "'Space Grotesk', sans-serif",
-                    color: item.completed ? "#475569" : "#E2E8F0",
+                    color: item.completed ? "var(--dash-subtle)" : "var(--dash-text)",
                     textDecoration: item.completed ? "line-through" : "none",
                   }}
                 >
                   {item.title}
                 </h4>
-                <p className="text-xs leading-relaxed mb-2" style={{ color: "#64748B" }}>
+                <p className="text-xs leading-relaxed mb-2" style={{ color: "var(--dash-muted)" }}>
                   {item.description}
                 </p>
                 <div className="flex items-center gap-2 flex-wrap">
@@ -141,9 +141,9 @@ export default function ActionPanel({ items }: ActionPanelProps) {
                     disabled={toggleMutation.isPending}
                     className="text-[10px] font-mono px-2 py-1 rounded transition-all hover:brightness-125"
                     style={{
-                      color: item.completed ? "#64748B" : "#00D4FF",
-                      background: item.completed ? "rgba(100,116,139,0.08)" : "rgba(0,212,255,0.06)",
-                      border: `1px solid ${item.completed ? "rgba(100,116,139,0.15)" : "rgba(0,212,255,0.15)"}`,
+                      color: item.completed ? "var(--dash-muted)" : "#00D4FF",
+                      background: item.completed ? "var(--dash-panel-soft)" : "color-mix(in srgb, var(--color-cyan) 6%, var(--dash-panel))",
+                      border: `1px solid ${item.completed ? "var(--dash-border)" : "color-mix(in srgb, var(--color-cyan) 15%, var(--dash-border))"}`,
                     }}
                   >
                     {item.completed ? "↩ Undo" : "✓ Mark done"}
