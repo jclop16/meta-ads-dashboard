@@ -418,6 +418,125 @@ function BreakdownMetric({
   );
 }
 
+function AccountRiskPanel({
+  summaryData,
+  cplTarget,
+}: {
+  summaryData:
+    | {
+        range: { label: string };
+        current: {
+          amountSpent: number;
+          leads: number;
+          costPerLead: number | null;
+          ctrLink: number;
+        };
+        deltas: {
+          costPerLead: number | null;
+          ctrLink: number | null;
+          leads: number | null;
+        };
+      }
+    | undefined;
+  cplTarget: number;
+}) {
+  if (!summaryData) {
+    return null;
+  }
+
+  const currentCpl = summaryData.current.costPerLead ?? 0;
+  const isHighRisk =
+    (summaryData.current.leads === 0 && summaryData.current.amountSpent >= cplTarget * 2) ||
+    currentCpl > cplTarget * 1.25;
+  const isStable = !isHighRisk && currentCpl <= cplTarget;
+  const accent = isHighRisk ? "#FF3B5C" : isStable ? "#00E676" : "#FFB300";
+  const title = isHighRisk ? "Efficiency Risk" : isStable ? "Efficiency Stable" : "Efficiency Watch";
+
+  const actions = [
+    isHighRisk
+      ? "Watch your highest-spend campaigns first. That is where wasted budget is likely compounding fastest."
+      : "Keep the current filtered mix stable while you verify the winners are still holding efficiency.",
+    (summaryData.deltas.costPerLead ?? 0) > 15
+      ? "CPL is worsening versus the prior period. Review new offers, landing-page edits, and audience overlap."
+      : "CPL is holding or improving versus the prior period. Preserve the current structure while testing isolated changes.",
+    (summaryData.deltas.ctrLink ?? 0) < -10
+      ? "Link CTR is slipping. Creative and hook fatigue may be the first place to intervene."
+      : "CTR is not the primary problem right now. Focus on downstream conversion efficiency before changing everything.",
+  ];
+
+  return (
+    <div
+      className="rounded-xl p-4"
+      style={{
+        background: "color-mix(in srgb, var(--dash-panel) 85%, transparent)",
+        border: `1px solid color-mix(in srgb, ${accent} 32%, var(--dash-border))`,
+      }}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-mono uppercase tracking-[0.18em]"
+          style={{ background: `${accent}18`, color: accent }}
+        >
+          <Sparkles size={11} />
+          {title}
+        </span>
+        <span className="text-xs font-mono" style={{ color: "var(--dash-subtle)" }}>
+          Filtered account scope
+        </span>
+      </div>
+
+      <h3
+        className="mt-3 text-sm font-semibold"
+        style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--dash-text)" }}
+      >
+        Account-wide readout for {summaryData.range.label}
+      </h3>
+      <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--dash-text-soft)" }}>
+        {isHighRisk
+          ? "The filtered account mix is currently showing meaningful efficiency pressure. Tighten the biggest loss points before adding more scale."
+          : isStable
+            ? "The filtered account mix is holding efficiency well enough to protect current winners and scale selectively."
+            : "The filtered account mix is mixed. You have enough signal to intervene, but not enough consistency to scale broadly yet."}
+      </p>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <FilterPill label="Spend" value={formatCurrency(summaryData.current.amountSpent)} />
+        <FilterPill label="Leads" value={summaryData.current.leads.toLocaleString()} />
+        <FilterPill
+          label="Blended CPL"
+          value={
+            summaryData.current.costPerLead != null
+              ? formatCurrency(summaryData.current.costPerLead)
+              : "No leads"
+          }
+        />
+        <FilterPill label="CPL Δ" value={formatDelta(summaryData.deltas.costPerLead, true)} />
+        <FilterPill label="CTR Δ" value={formatDelta(summaryData.deltas.ctrLink)} />
+      </div>
+
+      <div
+        className="mt-3 rounded-lg px-3 py-3"
+        style={{ background: "var(--dash-panel-soft)", border: "1px solid var(--dash-border)" }}
+      >
+        <div
+          className="text-[10px] font-mono uppercase tracking-[0.18em]"
+          style={{ color: "var(--dash-subtle)" }}
+        >
+          Efficiency risk actions
+        </div>
+        <div className="mt-2 space-y-2">
+          {actions.map(item => (
+            <div key={item} className="flex items-start gap-2 text-sm leading-relaxed" style={{ color: "var(--dash-text-soft)" }}>
+              <span className="mt-1 h-1.5 w-1.5 rounded-full" style={{ background: accent }} />
+              <span>{item}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Explorer() {
   const { cplTarget } = useCplTarget();
   const [preset, setPreset] =
@@ -520,25 +639,12 @@ export default function Explorer() {
     summaryData?.availableDataSince && summaryData?.availableDataUntil
       ? `${summaryData.availableDataSince} to ${summaryData.availableDataUntil}`
       : "Awaiting first historical sync";
-  const overallFocus = useMemo(() => {
-    const poorPerformer = campaignRows
-      .filter(row => row.performanceStatus === "poor")
-      .sort((left, right) => right.amountSpent - left.amountSpent)[0];
-
-    if (poorPerformer) {
-      return poorPerformer;
-    }
-
-    return [...campaignRows].sort((left, right) => right.performanceScore - left.performanceScore)[0] ?? null;
-  }, [campaignRows]);
-  const interpretationEntity = selectedAdset ?? selectedCampaign ?? overallFocus;
+  const interpretationEntity = selectedAdset ?? selectedCampaign ?? null;
   const interpretationTitle = selectedAdset
     ? `Recommended next move for ${selectedAdset.name}`
     : selectedCampaign
       ? `Recommended next move for ${selectedCampaign.displayName}`
-      : overallFocus
-        ? `Recommended focus inside ${summaryData?.range.label ?? "the filtered window"}`
-        : "Recommended focus";
+      : "Recommended focus";
 
   return (
     <div
@@ -878,7 +984,7 @@ export default function Explorer() {
 
           <SectionCard
             title="Interpretation Panel"
-            subtitle="Filters drive the overall readout. Selections only take over when you intentionally drill into a campaign or ad set."
+            subtitle="Filtered account scope shows efficiency risk by default. Campaign drilldowns replace it with selection-specific interpretation."
           >
             <div className="grid gap-3">
               <FilterPill label="Selected Campaign" value={selectedCampaign?.displayName ?? "None"} />
@@ -901,7 +1007,11 @@ export default function Explorer() {
               <div className="mt-4">
                 <RecommendationCallout entity={interpretationEntity} title={interpretationTitle} />
               </div>
-            ) : null}
+            ) : (
+              <div className="mt-4">
+                <AccountRiskPanel summaryData={summaryData} cplTarget={cplTarget} />
+              </div>
+            )}
           </SectionCard>
         </div>
 

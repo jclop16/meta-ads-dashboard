@@ -99,6 +99,23 @@ function formatRefreshTimestamp(value: Date | string | null | undefined) {
   }).format(date);
 }
 
+function formatMoney(value: number) {
+  return `$${value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function formatInteger(value: number) {
+  return value.toLocaleString("en-US", {
+    maximumFractionDigits: 0,
+  });
+}
+
+function formatPercentValue(value: number) {
+  return `${value.toFixed(2)}%`;
+}
+
 // ── Inner dashboard — has access to CplTargetContext ────────
 function DashboardContent() {
   const { cplTarget, getColor } = useCplTarget();
@@ -154,35 +171,46 @@ function DashboardContent() {
     [dailyPerformanceData]
   );
 
-  // Compute spend by objective from live campaign data
-  const spendByObjective = useMemo(() => {
-    const map: Record<
-      string,
-      { name: string; value: number; leads: number; campaigns: number }
-    > = {};
-    for (const c of campaigns) {
-      if (!map[c.objective]) {
-        map[c.objective] = {
-          name: c.objective,
-          value: 0,
-          leads: 0,
-          campaigns: 0,
-        };
-      }
-      map[c.objective].value += c.amountSpent;
-      map[c.objective].leads += c.leads;
-      map[c.objective].campaigns += 1;
-    }
-    return Object.values(map)
-      .map(objective => ({
-        ...objective,
+  const leadsByCampaign = useMemo(() => {
+    const primary = [...campaigns]
+      .filter(c => c.leads > 0 || c.amountSpent > 0)
+      .sort((left, right) => right.leads - left.leads)
+      .slice(0, 6)
+      .map(campaign => ({
+        name: campaign.displayName ?? campaign.shortName,
+        value: campaign.leads,
+        spend: campaign.amountSpent,
+        costPerLead: campaign.costPerLead,
+        color: getColor(campaign.costPerLead),
+      }));
+
+    const remaining = [...campaigns]
+      .filter(c => !primary.some(primaryCampaign => primaryCampaign.name === (c.displayName ?? c.shortName)))
+      .reduce(
+        (acc, campaign) => {
+          acc.value += campaign.leads;
+          acc.spend += campaign.amountSpent;
+          return acc;
+        },
+        { value: 0, spend: 0 }
+      );
+
+    if (remaining.value > 0) {
+      primary.push({
+        name: "Other Campaigns",
+        value: remaining.value,
+        spend: remaining.spend,
         costPerLead:
-          objective.leads > 0
-            ? Number((objective.value / objective.leads).toFixed(2))
-            : null,
-      }))
-      .sort((left, right) => right.value - left.value);
-  }, [campaigns]);
+          remaining.value > 0 ? Number((remaining.spend / remaining.value).toFixed(2)) : null,
+        color: DONUT_COLORS[primary.length % DONUT_COLORS.length],
+      });
+    }
+
+    return primary.map((campaign, index) => ({
+      ...campaign,
+      color: DONUT_COLORS[index % DONUT_COLORS.length],
+    }));
+  }, [campaigns, getColor]);
 
   // Dynamic counts based on current target
   const excellentCampaigns = useMemo(
@@ -212,8 +240,7 @@ function DashboardContent() {
     [campaigns, cplTarget]
   );
 
-  // Lead volume chart — colors driven by target
-  const leadsChartData = useMemo(
+  const leadVolumeTableRows = useMemo(
     () =>
       campaigns
         .filter(c => c.leads > 0)
@@ -221,10 +248,17 @@ function DashboardContent() {
         .map(c => ({
           name: c.displayName ?? c.shortName,
           leads: c.leads,
+          spend: c.amountSpent,
+          cpl: c.costPerLead,
           color: getColor(c.costPerLead),
+          status: c.performanceStatus,
         })),
     [campaigns, cplTarget]
   );
+
+  const topLeadCampaign = leadVolumeTableRows[0] ?? null;
+  const onTargetLeadCampaigns = leadVolumeTableRows.filter(campaign => campaign.status === "excellent").length;
+  const totalCampaignLeads = leadVolumeTableRows.reduce((sum, campaign) => sum + campaign.leads, 0);
 
   const trailingSevenDaySummary = useMemo(
     () => summarizeDays((dailyPerformanceData?.days ?? []).slice(-7)),
@@ -242,77 +276,78 @@ function DashboardContent() {
     >
       {/* ── HEADER ─────────────────────────────────────────── */}
       <header
-        className="sticky top-0 z-50 px-4 sm:px-6 py-3 flex items-center justify-between gap-3 flex-wrap"
+        className="sticky top-0 z-50 px-4 sm:px-6 py-3"
         style={{
           background: "var(--dash-header)",
           backdropFilter: "blur(12px)",
           borderBottom: "1px solid var(--dash-border)",
         }}
       >
-        <div className="flex items-center gap-3 flex-shrink-0">
-          <img
-            src="https://d2xsxph8kpxj0f.cloudfront.net/310519663448934432/QTGwE5aAupQz3MyiEqLWFv/meta-logo-icon-eYSYyQuej67BqrVa9EmrMH.webp"
-            alt="Logo"
-            className="w-7 h-7 object-contain"
-          />
-          <div>
-            <h1
-              className="text-sm font-bold leading-none"
-              style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--dash-text)" }}
+        <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <img
+              src="https://d2xsxph8kpxj0f.cloudfront.net/310519663448934432/QTGwE5aAupQz3MyiEqLWFv/meta-logo-icon-eYSYyQuej67BqrVa9EmrMH.webp"
+              alt="Logo"
+              className="w-7 h-7 object-contain"
+            />
+            <div>
+              <h1
+                className="text-sm font-bold leading-none"
+                style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--dash-text)" }}
+              >
+                Meta Ads Dashboard
+              </h1>
+              <p className="text-[10px] mt-0.5 font-mono" style={{ color: "var(--dash-subtle)" }}>
+                {accountName}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex-1 flex justify-center min-w-[280px]">
+            <CplTargetInput />
+          </div>
+
+          <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
+            <div
+              className="hidden sm:flex items-center gap-1.5 text-xs font-mono px-3 py-1.5 rounded-full"
+              style={{
+                background: "rgba(0,212,255,0.08)",
+                border: "1px solid rgba(0,212,255,0.15)",
+                color: "#00D4FF",
+              }}
             >
-              Meta Ads Dashboard
-            </h1>
-            <p className="text-[10px] mt-0.5 font-mono" style={{ color: "var(--dash-subtle)" }}>
-              {accountName}
-            </p>
+              <Clock size={11} />
+              {reportDateRange}
+            </div>
+            <a
+              href="/explorer"
+              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors hover:brightness-125"
+              style={{
+                fontFamily: "'Space Grotesk', sans-serif",
+                background: "rgba(0,212,255,0.08)",
+                border: "1px solid rgba(0,212,255,0.14)",
+                color: "#00D4FF",
+              }}
+            >
+              <BarChart2 size={12} />
+              Explorer
+            </a>
+            <a
+              href="/history"
+              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors hover:brightness-125"
+              style={{
+                fontFamily: "'Space Grotesk', sans-serif",
+                background: "var(--dash-panel-soft)",
+                border: "1px solid var(--dash-border)",
+                color: "var(--dash-text-soft)",
+              }}
+            >
+              <BarChart2 size={12} />
+              History
+            </a>
+            <ThemeToggle />
+            <RefreshButton />
           </div>
-        </div>
-
-        {/* CPL Target Input — center of header */}
-        <div className="flex-1 flex justify-center">
-          <CplTargetInput />
-        </div>
-
-        <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
-          <div
-            className="hidden sm:flex items-center gap-1.5 text-xs font-mono px-3 py-1.5 rounded-full"
-            style={{
-              background: "rgba(0,212,255,0.08)",
-              border: "1px solid rgba(0,212,255,0.15)",
-              color: "#00D4FF",
-            }}
-          >
-            <Clock size={11} />
-            {reportDateRange}
-          </div>
-          <a
-            href="/explorer"
-            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors hover:brightness-125"
-            style={{
-              fontFamily: "'Space Grotesk', sans-serif",
-              background: "rgba(0,212,255,0.08)",
-              border: "1px solid rgba(0,212,255,0.14)",
-              color: "#00D4FF",
-            }}
-          >
-            <BarChart2 size={12} />
-            Explorer
-          </a>
-          <a
-            href="/history"
-            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors hover:brightness-125"
-            style={{
-              fontFamily: "'Space Grotesk', sans-serif",
-              background: "var(--dash-panel-soft)",
-              border: "1px solid var(--dash-border)",
-              color: "var(--dash-text-soft)",
-            }}
-          >
-            <BarChart2 size={12} />
-            History
-          </a>
-          <ThemeToggle />
-          <RefreshButton />
         </div>
       </header>
 
@@ -404,7 +439,7 @@ function DashboardContent() {
 
       {/* ── HERO BANNER ────────────────────────────────────── */}
       <div
-        className="relative px-6 py-10 overflow-hidden"
+        className="relative overflow-hidden px-6 py-10"
         style={{
           backgroundImage: `url(https://d2xsxph8kpxj0f.cloudfront.net/310519663448934432/QTGwE5aAupQz3MyiEqLWFv/dashboard-hero-bg-9vtDn5uishwb9ntHnoxkZC.webp)`,
           backgroundSize: "cover",
@@ -415,38 +450,40 @@ function DashboardContent() {
           className="absolute inset-0"
           style={{ background: "var(--dash-hero-overlay)" }}
         />
-        <div className="relative z-10 max-w-4xl">
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-          >
-            <p className="text-xs font-mono uppercase tracking-widest mb-2" style={{ color: "#00D4FF" }}>
-              Performance Review · {reportDateRange}
-            </p>
-            <h2
-              className="text-3xl sm:text-4xl font-bold leading-tight mb-3"
-              style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#F1F5F9" }}
+        <div className="mx-auto max-w-[1440px]">
+          <div className="relative z-10 max-w-4xl">
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5 }}
             >
-              Your ads spent{" "}
-              <span style={{ color: "#00D4FF" }}>
-                ${totalSpend.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-              </span>
-              <br />
-              and generated{" "}
-              <span style={{ color: "#00E676" }}>{totalLeads} leads</span>
-            </h2>
-            <p className="text-sm" style={{ color: "var(--dash-muted)" }}>
-              vs. your CPL target of{" "}
-              <span style={{ color: "#00D4FF" }} className="font-mono font-semibold">
-                ${cplTarget.toFixed(2)}
-              </span>
-              {" "}·{" "}
-              <span style={{ color: "#00E676" }}>{excellentCampaigns.length} on target</span>
-              {" "}·{" "}
-              <span style={{ color: "#FF3B5C" }}>{poorCampaigns.length} over target</span>
-            </p>
-          </motion.div>
+              <p className="mb-2 text-xs font-mono uppercase tracking-widest" style={{ color: "#00D4FF" }}>
+                Performance Review · {reportDateRange}
+              </p>
+              <h2
+                className="mb-3 text-3xl font-bold leading-tight sm:text-4xl"
+                style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--dash-text)" }}
+              >
+                Your ads spent{" "}
+                <span style={{ color: "#00D4FF" }}>
+                  {formatMoney(totalSpend)}
+                </span>
+                <br />
+                and generated{" "}
+                <span style={{ color: "#00E676" }}>{formatInteger(totalLeads)} leads</span>
+              </h2>
+              <p className="text-sm" style={{ color: "var(--dash-muted)" }}>
+                vs. your CPL target of{" "}
+                <span style={{ color: "#00D4FF" }} className="font-mono font-semibold">
+                  {formatMoney(cplTarget)}
+                </span>
+                {" "}·{" "}
+                <span style={{ color: "#00E676" }}>{excellentCampaigns.length} on target</span>
+                {" "}·{" "}
+                <span style={{ color: "#FF3B5C" }}>{poorCampaigns.length} over target</span>
+              </p>
+            </motion.div>
+          </div>
         </div>
       </div>
 
@@ -524,15 +561,15 @@ function DashboardContent() {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-3">
             <MetricCard
               label="Amount Spent"
-              value={`$${(totalSpend / 1000).toFixed(1)}K`}
-              subValue={`$${totalSpend.toLocaleString("en-US", { minimumFractionDigits: 2 })}`}
+              value={formatMoney(totalSpend)}
+              subValue="Period spend"
               icon={<DollarSign size={14} />}
               accent="cyan"
               delay={0}
             />
             <MetricCard
               label="Leads"
-              value={totalLeads.toLocaleString()}
+              value={formatInteger(totalLeads)}
               subValue="Total conversions"
               icon={<Target size={14} />}
               accent="win"
@@ -548,15 +585,15 @@ function DashboardContent() {
             />
             <MetricCard
               label="Impressions"
-              value={`${((metricsData?.impressions ?? 0) / 1000).toFixed(0)}K`}
-              subValue={(metricsData?.impressions ?? 0).toLocaleString()}
+              value={formatInteger(metricsData?.impressions ?? 0)}
+              subValue="Total delivery"
               icon={<Eye size={14} />}
               accent="neutral"
               delay={0.15}
             />
             <MetricCard
               label="Reach"
-              value={`${((metricsData?.reach ?? 0) / 1000).toFixed(0)}K`}
+              value={formatInteger(metricsData?.reach ?? 0)}
               subValue="Accounts Center accounts"
               icon={<Users size={14} />}
               accent="neutral"
@@ -564,8 +601,8 @@ function DashboardContent() {
             />
             <MetricCard
               label="CTR (all)"
-              value={`${metricsData?.ctrAll ?? 0}%`}
-              subValue={`Link CTR: ${metricsData?.ctrLink ?? 0}%`}
+              value={formatPercentValue(metricsData?.ctrAll ?? 0)}
+              subValue={`Link CTR: ${formatPercentValue(metricsData?.ctrLink ?? 0)}`}
               icon={<MousePointer size={14} />}
               accent="cyan"
               delay={0.25}
@@ -573,9 +610,9 @@ function DashboardContent() {
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
             <MetricCard label="CPM" value={`$${(metricsData?.cpm ?? 0).toFixed(2)}`} subValue="Cost per 1,000 impressions" accent="neutral" delay={0.3} />
-            <MetricCard label="CPC (all)" value={`$${(metricsData?.cpcAll ?? 0).toFixed(4)}`} subValue="Cost per click (all)" accent="neutral" delay={0.35} />
-            <MetricCard label="CPC (link)" value={`$${(metricsData?.cpcLink ?? 0).toFixed(4)}`} subValue="Cost per link click" accent="neutral" delay={0.4} />
-            <MetricCard label="Frequency" value={`${metricsData?.frequency ?? 0}×`} subValue="Avg impressions per account" accent="warn" delay={0.45} />
+            <MetricCard label="CPC (all)" value={`$${(metricsData?.cpcAll ?? 0).toFixed(2)}`} subValue="Cost per click (all)" accent="neutral" delay={0.35} />
+            <MetricCard label="CPC (link)" value={`$${(metricsData?.cpcLink ?? 0).toFixed(2)}`} subValue="Cost per link click" accent="neutral" delay={0.4} />
+            <MetricCard label="Frequency" value={`${(metricsData?.frequency ?? 0).toFixed(2)}×`} subValue="Avg impressions per account" accent="warn" delay={0.45} />
           </div>
         </section>
 
@@ -590,7 +627,7 @@ function DashboardContent() {
               {cplTarget.toFixed(2)})
             </p>
             <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={cplChartData} layout="vertical" margin={{ left: 8, right: 50, top: 4, bottom: 4 }}>
+              <BarChart data={cplChartData} layout="vertical" margin={{ left: 0, right: 24, top: 4, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--dash-chart-grid)" horizontal={false} />
                 <XAxis
                   type="number"
@@ -602,7 +639,7 @@ function DashboardContent() {
                 <YAxis
                   type="category"
                   dataKey="name"
-                  width={170}
+                  width={120}
                   tick={{ fill: "var(--dash-muted)", fontSize: 9, fontFamily: "JetBrains Mono" }}
                   axisLine={false}
                   tickLine={false}
@@ -630,27 +667,27 @@ function DashboardContent() {
             </ResponsiveContainer>
           </div>
 
-          {/* Spend by Objective Donut */}
+          {/* Leads by Campaign Donut */}
           <div className="glow-card rounded-lg p-5">
-            <SectionLabel icon={<DollarSign size={13} />} label="Spend by Objective" />
+            <SectionLabel icon={<Target size={13} />} label="Leads by Campaign" />
             <p className="text-xs mt-1 mb-2" style={{ color: "var(--dash-subtle)" }}>
-              Total: ${totalSpend.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+              Total leads: {formatInteger(totalLeads)}
             </p>
             <ResponsiveContainer width="100%" height={200}>
               <PieChart>
-                <Pie data={spendByObjective} cx="50%" cy="50%" innerRadius={55} outerRadius={80} paddingAngle={3} dataKey="value">
-                  {spendByObjective.map((_, i) => (
+                <Pie data={leadsByCampaign} cx="50%" cy="50%" innerRadius={55} outerRadius={80} paddingAngle={3} dataKey="value">
+                  {leadsByCampaign.map((_, i) => (
                     <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} fillOpacity={0.9} />
                   ))}
                 </Pie>
                 <Tooltip
-                  formatter={(v: number) => [`$${v.toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "Spent"]}
+                  formatter={(v: number) => [formatInteger(v), "Leads"]}
                   contentStyle={{ background: "var(--dash-panel-solid)", border: "1px solid rgba(0,212,255,0.2)", borderRadius: "8px", fontSize: "11px", fontFamily: "JetBrains Mono" }}
                 />
               </PieChart>
             </ResponsiveContainer>
             <div className="space-y-2 mt-2">
-              {spendByObjective.map((d, i) => (
+              {leadsByCampaign.map((d, i) => (
                 <div key={i} className="flex items-center justify-between text-xs font-mono">
                   <div className="flex items-center gap-2">
                     <div
@@ -660,13 +697,13 @@ function DashboardContent() {
                     <div className="flex flex-col">
                       <span style={{ color: "var(--dash-text-soft)" }}>{d.name}</span>
                       <span style={{ color: "var(--dash-subtle)", fontSize: "10px" }}>
-                        {d.leads} leads · {d.campaigns} campaign{d.campaigns !== 1 ? "s" : ""}
-                        {d.costPerLead != null ? ` · $${d.costPerLead.toFixed(2)} CPL` : ""}
+                        {formatInteger(d.value)} leads
+                        {d.costPerLead != null ? ` · ${formatMoney(d.costPerLead)} CPL` : ""}
                       </span>
                     </div>
                   </div>
                   <span style={{ color: "var(--dash-text)" }}>
-                    ${d.value.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    {formatMoney(d.spend)}
                   </span>
                 </div>
               ))}
@@ -679,21 +716,75 @@ function DashboardContent() {
           <div className="glow-card rounded-lg p-5">
             <SectionLabel icon={<Target size={13} />} label="Lead Volume by Campaign" />
             <p className="text-xs mt-1 mb-4" style={{ color: "var(--dash-subtle)" }}>
-              Bar color reflects CPL performance vs. your target
+              Top lead-generating campaigns in the current reporting window
             </p>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={leadsChartData} margin={{ left: 0, right: 16, top: 4, bottom: 60 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--dash-chart-grid)" vertical={false} />
-                <XAxis dataKey="name" tick={{ fill: "var(--dash-subtle)", fontSize: 9, fontFamily: "JetBrains Mono" }} angle={-35} textAnchor="end" interval={0} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: "var(--dash-subtle)", fontSize: 10, fontFamily: "JetBrains Mono" }} axisLine={false} tickLine={false} />
-                <Tooltip content={<DarkTooltip />} />
-                <Bar dataKey="leads" name="Leads" radius={[3, 3, 0, 0]}>
-                  {leadsChartData.map((d, i) => (
-                    <Cell key={i} fill={d.color} fillOpacity={0.8} />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
+              <PulseCard
+                label="Top Campaign"
+                value={topLeadCampaign?.name ?? "No data"}
+                subValue={
+                  topLeadCampaign
+                    ? `${formatInteger(topLeadCampaign.leads)} leads · ${topLeadCampaign.cpl != null ? formatMoney(topLeadCampaign.cpl) : "No CPL"}`
+                    : "Awaiting campaign data"
+                }
+                color="#00E676"
+              />
+              <PulseCard
+                label="Lead Campaigns"
+                value={formatInteger(leadVolumeTableRows.length)}
+                subValue={`${formatInteger(totalCampaignLeads)} attributed leads`}
+                color="#00D4FF"
+              />
+              <PulseCard
+                label="On-target Winners"
+                value={formatInteger(onTargetLeadCampaigns)}
+                subValue="Campaigns currently beating CPL target"
+                color="#FFB300"
+              />
+            </div>
+            <div className="overflow-hidden rounded-lg" style={{ border: "1px solid var(--dash-border)" }}>
+              <table className="w-full">
+                <thead>
+                  <tr style={{ background: "var(--dash-panel-soft)", borderBottom: "1px solid var(--dash-border)" }}>
+                    <th className="px-4 py-3 text-left text-[10px] font-mono uppercase tracking-widest" style={{ color: "var(--dash-subtle)" }}>
+                      Campaign
+                    </th>
+                    <th className="px-4 py-3 text-right text-[10px] font-mono uppercase tracking-widest" style={{ color: "var(--dash-subtle)" }}>
+                      Leads
+                    </th>
+                    <th className="px-4 py-3 text-right text-[10px] font-mono uppercase tracking-widest" style={{ color: "var(--dash-subtle)" }}>
+                      Spend
+                    </th>
+                    <th className="px-4 py-3 text-right text-[10px] font-mono uppercase tracking-widest" style={{ color: "var(--dash-subtle)" }}>
+                      CPL
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {leadVolumeTableRows.slice(0, 6).map(row => (
+                    <tr key={row.name} style={{ borderBottom: "1px solid var(--dash-border)" }}>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className="h-2 w-2 rounded-full" style={{ background: row.color }} />
+                          <span className="text-sm font-semibold" style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--dash-text)" }}>
+                            {row.name}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm font-mono" style={{ color: "#00E676" }}>
+                        {formatInteger(row.leads)}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm font-mono" style={{ color: "var(--dash-text-soft)" }}>
+                        {formatMoney(row.spend)}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm font-mono font-semibold" style={{ color: row.color }}>
+                        {row.cpl != null ? formatMoney(row.cpl) : "No leads"}
+                      </td>
+                    </tr>
                   ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+                </tbody>
+              </table>
+            </div>
           </div>
 
           <div className="glow-card rounded-lg p-5">
